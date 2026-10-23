@@ -65,6 +65,9 @@ through `onUpdate`, so a long build at least shows its last line instead of a fr
 cannot show is the middle: you cannot look at how far it has got, decide to stop, or extend the
 budget without aborting the call, which kills the command.
 
+Background needs an interactive session. Print/JSON mode exits when the turn ends and takes the
+watch with it, so \`background\` is refused there rather than promising a report that cannot arrive.
+
 So use foreground only for runs you know finish inside ~10 seconds — a probe, `--version`, a
 single test file. Anything whose duration is a guess belongs in the background.
 

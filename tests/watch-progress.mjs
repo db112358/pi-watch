@@ -20,7 +20,7 @@ mod.default(pi);
 
 const ctx = {
 	cwd: process.cwd(),
-	hasUI: false,
+	hasUI: true,
 	ui: { setStatus: () => {}, setWorkingMessage: () => {} },
 };
 

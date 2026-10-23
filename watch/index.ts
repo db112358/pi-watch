@@ -658,7 +658,7 @@ Use this instead of bash for anything that may take more than a couple of minute
 
 \`onMatch\` escalates when \`until\` matches: a separate agent with its own context reads the output and investigates, and its report is returned with the result. Use it when the useful answer is not in the output itself, for example "the build failed, find out which change broke it". That agent's session persists, so \`watch_ask\` can follow up on what it found without starting over.
 
-With \`background: true\` the call returns a handle immediately and the report, including any investigation, arrives later as a message that starts a new turn. Keep working, or do nothing; do not poll, and do not re-run the command. Add \`progress\` (seconds) to have interim messages arrive while it runs — the same handle, but with the evolving tail — for a run you want to steer before it settles.`,
+With \`background: true\` the call returns a handle immediately and the report, including any investigation, arrives later as a message that starts a new turn. It needs an interactive session; print/JSON mode exits at the end of the turn and takes the watch with it. Keep working, or do nothing; do not poll, and do not re-run the command. Add \`progress\` (seconds) to have interim messages arrive while it runs — the same handle, but with the evolving tail — for a run you want to steer before it settles.`,
 		promptSnippet: "Run a long command and wait for a condition (regex, exit, or timeout)",
 		promptGuidelines: [
 			"Prefer `watch` over `bash` for builds, test suites, CI runs, and any command that may outlive a bash timeout.",
@@ -729,6 +729,11 @@ With \`background: true\` the call returns a handle immediately and the report, 
 			});
 			live.add(watch);
 			const background = params.background === true;
+			if (background && !ctx.hasUI) {
+				throw new Error(
+					"background watches need an interactive session: the report arrives as a message after this turn, and print/JSON mode exits — killing the watch — when the turn ends. Use a foreground watch with `until` instead.",
+				);
+			}
 			const onMatch = params.onMatch;
 
 			if (background) {

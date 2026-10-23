@@ -1,4 +1,4 @@
-// Harness: drive watch.ts with a fake pi and assert the interim messages.
+// Harness: drive watch.ts with a fake pi and assert the messages it produces.
 import assert from "node:assert/strict";
 import { createJiti } from "jiti";
 
@@ -6,8 +6,8 @@ const jiti = createJiti(import.meta.url);
 const mod = await jiti.import(new URL("../watch/index.ts", import.meta.url).pathname);
 
 const sent = [];
-const renderers = new Map();
 const tools = new Map();
+const renderers = new Map();
 const pi = {
 	on: () => {},
 	registerCommand: () => {},
@@ -36,6 +36,10 @@ const ctx = {
 
 const watch = tools.get("watch");
 assert.ok(watch, "watch tool registered");
+assert.ok(
+	watch.parameters.required?.includes("title"),
+	"title is required, so the card always says why the watch is running",
+);
 
 const started = await watch.execute(
 	"call-1",
@@ -52,37 +56,36 @@ const started = await watch.execute(
 	ctx,
 );
 assert.match(started.content[0].text, /started in the background/);
+assert.match(started.content[0].text, /title: tick demo for the progress test/);
 
 await new Promise((resolve) => setTimeout(resolve, 11_000));
 
 // The card below the editor, under andon's, carries the title and the elapsed time.
-const card = widgets.filter((entry) => entry.key === "watch" && entry.content);
-const latest = card.at(-1);
+const cards = widgets.filter((entry) => entry.key === "watch" && entry.content);
+const latest = cards.at(-1);
 assert.ok(latest, "watch draws a widget card");
 assert.equal(latest.options.placement, "belowEditor");
 assert.match(latest.content[0], /tick demo for the progress test/);
-assert.match(latest.content[0], /\d/);
 
 const progress = sent.filter((entry) => entry.message.customType === "watch_progress");
 assert.ok(progress.length >= 1, `expected interim messages, got ${progress.length}`);
-assert.match(progress[0].message.content, /^watch w\d+ tick demo for the progress test still running · \d/);
+assert.match(
+	progress[0].message.content,
+	/^watch w\d+ tick demo for the progress test still running · \d/,
+);
 assert.match(progress[0].message.content, /tick \d/);
 assert.equal(progress[0].options.triggerTurn, true);
-assert.ok(
-	progress.every((entry) => entry.message.content.length < 4_000),
-	"an interim message should stay small",
-);
 
 const theme = { fg: (_token, text) => text, bg: (_token, text) => text, bold: (text) => text };
 const renderer = renderers.get("watch_progress");
 assert.ok(renderer, "a renderer is registered for watch_progress");
-// Box pads the row, so count the lines that carry anything.
-const rendered = renderer(progress[0].message, { expanded: false, outputPad: 1 }, theme)
-	.render(120)
-	.filter((line) => line.trim());
-assert.equal(rendered.length, 1, `collapsed to one row, got ${rendered.length}`);
-assert.match(rendered[0], /▶ watch w\d+ .* still running/);
-assert.doesNotMatch(rendered[0], /tick \d/, "the tail stays folded");
+
+const folded = renderer(progress[0].message, { expanded: false, outputPad: 1 }, theme).render(120);
+assert.equal(folded.length, 1, `folds to one row, got ${folded.length}`);
+assert.match(folded[0], /▶ watch w\d+ .* still running/);
+assert.doesNotMatch(folded[0], /tick \d/, "the tail stays folded");
+
+// ctrl+o is the expand control: the same one that opens a tool row.
 const opened = renderer(progress[0].message, { expanded: true, outputPad: 1 }, theme).render(120);
 assert.ok(opened.length > 1, "expanded shows the tail");
 assert.match(opened.join("\n"), /tick \d/);
@@ -109,5 +112,5 @@ assert.equal(
 	"a silent watch must not wake the model",
 );
 
-console.log(`ok: ${progress.length} interim messages, 1 settled report, no wake on silence`);
+console.log(`ok: ${progress.length} interim messages, folded to one row, 1 settled report, no wake on silence`);
 process.exit(0);

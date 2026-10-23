@@ -30,7 +30,7 @@ import {
 	ModelSelectorComponent,
 	truncateTail,
 } from "@earendil-works/pi-coding-agent";
-import { Box, MouseRegion, Text } from "@earendil-works/pi-tui";
+import { Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { type EscalationOutcome, Escalator, errorMessage, formatDuration } from "./escalation.ts";
 import {
@@ -59,7 +59,7 @@ const KILL_GRACE_MS = 3_000;
 const WIDGET_KEY = "watch";
 /** One glyph per state, so the card reads at a glance like the andon light. */
 const STATUS_GLYPH: Record<string, string> = {
-	running: "●",
+	running: "⏳",
 	matched: "✓",
 	exited: "✓",
 	failed: "✗",
@@ -665,29 +665,19 @@ export default function (pi: ExtensionAPI) {
 		});
 	};
 
-	/** Rows opened by a click, keyed by the message they belong to. */
-	const progressOpen = new Set<number>();
-
-	/** An interim check-in folds to one row, like a tool row; ctrl+o or a click opens it. */
+	/**
+	 * An interim check-in folds to one row: ctrl+o opens it, the same control that
+	 * expands tool rows. A click cannot, because a message renderer gets no
+	 * invalidate handle to redraw itself with.
+	 */
 	pi.registerMessageRenderer<{ label: string; tail?: string }>(
 		"watch_progress",
-		(message, { expanded, outputPad }, theme) => {
+		(message, { expanded }, theme) => {
 			const [head, ...rest] = String(message.content).split("\n\n");
 			const label = message.details?.label ?? head;
 			const tail = message.details?.tail ?? rest.join("\n\n");
-			const open = expanded || progressOpen.has(message.timestamp);
-			let text = `${theme.fg("dim", "▶")} ${theme.fg("text", label)}`;
-			if (open && tail) text += `\n${theme.fg("dim", tail)}`;
-
-			const row = new MouseRegion(new Text(text, 0, 0), (event) => {
-				if (event.type !== "click" || event.button !== "left") return undefined;
-				if (progressOpen.has(message.timestamp)) progressOpen.delete(message.timestamp);
-				else progressOpen.add(message.timestamp);
-				return { handled: true };
-			});
-			const box = new Box(outputPad, 1, (t) => theme.bg("customMessageBg", t));
-			box.addChild(row);
-			return box;
+			const row = `${theme.fg("dim", "▶")} ${theme.fg("text", label)}`;
+			return new Text(expanded && tail ? `${row}\n${theme.fg("dim", tail)}` : row, 0, 0);
 		},
 	);
 

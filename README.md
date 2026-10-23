@@ -77,8 +77,9 @@ seen settled. They are skipped when the command produced nothing new, the floor 
 one of them starts a turn — treat it as "check in on this run" (30–60s), not a `tail -f`. The
 settled report supersedes them.
 
-Each check-in folds to a single row — `▶ watch w2 draft PR CI · 10.0s · 35B` — like a thinking or
-tool row: `ctrl+o` opens it, and clicking the row toggles the last five lines beneath it.
+Each check-in folds to a single row — `▶ watch w2 draft PR CI · 10.0s · 35B` — and `ctrl+o`, the
+control that opens tool rows, shows the last five lines beneath it. A click cannot open one: a
+message renderer is given no invalidate handle, so it has no way to redraw itself.
 
 This is what a `tail`-in-a-loop cannot do: that loop runs inside one tool call, so its intermediate
 output only reaches the model at the end, by which time the decision it was meant to inform has
@@ -87,7 +88,8 @@ passed.
 ## The status card
 
 Live watches draw a card below the editor, underneath andon's: one line per watch (at most
-three), a glyph for its state, its title and how long it has been going. A lone watch also shows
+three), a glyph for its state (`⏳` running, `✓` done, `✗` failed), its title and how long it has
+been going. A lone watch also shows
 the last line it produced, so the card says what the run is *doing*, not just that it exists.
 It replaces the footer status line, which had room for an id and a duration and nothing else.
 

@@ -56,7 +56,17 @@ const PROGRESS_INTERVAL_MS = 500;
 /** Floor for `progress`: each interim message starts a turn, so faster is noise. */
 const MIN_PROGRESS_SECONDS = 5;
 const KILL_GRACE_MS = 3_000;
-const STATUS_KEY = "watch";
+const WIDGET_KEY = "watch";
+/** One glyph per state, so the card reads at a glance like the andon light. */
+const STATUS_GLYPH: Record<string, string> = {
+	running: "●",
+	matched: "✓",
+	exited: "✓",
+	failed: "✗",
+	error: "✗",
+	timeout: "◷",
+	aborted: "■",
+};
 /** Settled watches kept around for `watch_status`; each pins its buffer. */
 const HISTORY_LIMIT = 10;
 /** Output handed to an investigating agent, before it is told to read the full log. */
@@ -71,6 +81,8 @@ type WatchStatus = "running" | "exited" | "matched" | "failed" | "timeout" | "ab
 
 interface WatchOptions {
 	command: string;
+	/** A few words on what the run is for, shown wherever the watch is. */
+	title?: string;
 	cwd: string;
 	until?: RegExp;
 	fail?: RegExp;
@@ -96,6 +108,7 @@ interface WatchResult {
 interface WatchDetails {
 	watchId: string;
 	status: WatchStatus;
+	title?: string;
 	command: string;
 	elapsedMs: number;
 	exitCode: number | null;
@@ -133,6 +146,12 @@ function matchedLineOf(text: string, match: RegExpMatchArray): string {
 	return text.slice(start, end === -1 ? undefined : end).trim();
 }
 
+/** One plain line: no control sequences from a model-written title reach the terminal. */
+function plain(text: string, max: number): string {
+	const cleaned = text.replace(/[\u0000-\u001f\u007f]+/g, " ").replace(/\s+/g, " ").trim();
+	return cleaned.length > max ? `${cleaned.slice(0, max - 1)}…` : cleaned;
+}
+
 function formatUsage(usage: EscalationOutcome["usage"]): string {
 	return `${usage.input} in / ${usage.output} out${usage.cost > 0 ? `, $${usage.cost.toFixed(2)}` : ""}`;
 }
@@ -144,6 +163,7 @@ function formatUsage(usage: EscalationOutcome["usage"]): string {
 class Watch {
 	readonly id: string;
 	readonly command: string;
+	readonly title?: string;
 	readonly cwd: string;
 	readonly startedAt = Date.now();
 	readonly fullOutputPath: string;
@@ -171,6 +191,7 @@ class Watch {
 		this.options = options;
 		this.id = `w${++watchSeq}`;
 		this.command = options.command;
+		this.title = options.title;
 		this.cwd = options.cwd;
 		this.fullOutputPath = join(mkdtempSync(join(tmpdir(), "pi-watch-")), "output.log");
 		this.sink = createWriteStream(this.fullOutputPath);
@@ -178,6 +199,11 @@ class Watch {
 			this.resolveDone = resolve;
 		});
 		this.spawnChild();
+	}
+
+	/** What this run is for, in the reader's terms. */
+	get label(): string {
+		return this.title ?? this.command;
 	}
 
 	get lastLine(): string {
@@ -501,6 +527,7 @@ export default function (pi: ExtensionAPI) {
 		return {
 			watchId: watch.id,
 			status: result?.status ?? watch.status,
+			title: watch.title,
 			command: watch.command,
 			elapsedMs: result?.elapsedMs ?? watch.elapsedMs,
 			exitCode: result ? result.exitCode : watch.exitCode,
@@ -531,58 +558,44 @@ export default function (pi: ExtensionAPI) {
 		return text;
 	};
 
-	/** The status row is the only signal once a watch outlives its turn. */
+	/** `w2 draft-PR CI` — the title is why the card is worth reading. */
+	const plan = (id: string, label: string) => `${id} ${plain(label, 36)}`;
+
+	/**
+	 * Live watches as a card below the editor — the only signal once a watch
+	 * outlives its turn. Registered after andon's card, so it sits beneath it.
+	 */
 	const refreshStatus = (ctx: ExtensionToolContext) => {
 		if (!ctx.hasUI) return;
 		// A background watch's tool context outlives its turn.
 		try {
 			if (live.size === 0) {
-				ctx.ui.setStatus(STATUS_KEY, undefined);
+				ctx.ui.setWidget(WIDGET_KEY, undefined);
 				return;
 			}
-			const shown = [...live].slice(0, 3).map((watch) => {
+			const theme = ctx.ui.theme;
+			const dim = (text: string) => (theme ? theme.fg("dim", text) : text);
+			const watches = [...live].slice(0, 3);
+			const lines = watches.map((watch) => {
 				const phase = escalator.isRunning(watch.id)
 					? " investigating"
 					: watch.status === "running"
 						? ""
 						: ` ${watch.status}`;
-				return `${watch.id} ${formatDuration(watch.elapsedMs)}${phase}`;
+				const glyph = STATUS_GLYPH[watch.status] ?? "●";
+				return `${glyph} ${plan(watch.id, watch.label)}  ${dim(`${formatDuration(watch.elapsedMs)}${phase}`)}`;
 			});
-			const more = live.size > shown.length ? ` +${live.size - shown.length}` : "";
-			ctx.ui.setStatus(STATUS_KEY, `running: ${shown.join(", ")}${more}`);
+			// A lone watch says what it is doing, not just how long it has been at it.
+			const only = watches[0];
+			if (watches.length === 1 && only.status === "running" && only.lastLine) {
+				lines.push(dim(`  ${plain(only.lastLine, 100)}`));
+			}
+			if (live.size > watches.length) {
+				lines.push(dim(`+${live.size - watches.length} more`));
+			}
+			ctx.ui.setWidget(WIDGET_KEY, lines, { placement: "belowEditor" });
 		} catch {
 			// The UI is gone; the log file is still on disk.
-		}
-	};
-
-	/** Hand a matched result to a pi session that investigates and reports back. */
-	const escalate = async (
-		watch: Watch,
-		result: WatchResult,
-		request: EscalationRequest,
-		ctx: ExtensionToolContext,
-		signal: AbortSignal | undefined,
-		onText: ((text: string) => void) | undefined,
-	): Promise<string> => {
-		mkdirSync(ESCALATION_SESSION_DIR, { recursive: true });
-		refreshStatus(ctx);
-		try {
-			const outcome = await escalator.start(
-				{
-					key: watch.id,
-					sessionId: `${watch.id}-investigation`,
-					cwd: watch.cwd,
-					prompt: escalationPrompt(watch, result, request.task),
-					tools: request.tools?.length ? request.tools : DEFAULT_INVESTIGATION_TOOLS,
-					model: resolveInvestigationModel(ctx, request.model),
-				},
-				onText,
-				signal,
-			);
-			if (outcome.status === "aborted") return outcome.text;
-			return `${outcome.text}\n\n[investigation: ${formatUsage(outcome.usage)} · session ${outcome.sessionId} in ${outcome.sessionDir}]`;
-		} finally {
-			refreshStatus(ctx);
 		}
 	};
 
@@ -606,7 +619,7 @@ export default function (pi: ExtensionAPI) {
 					{
 						customType: "watch_progress",
 						display: true,
-						content: `watch ${watch.id} still running · ${formatDuration(watch.elapsedMs)} · ${formatSize(watch.outputBytes)} output${tail ? `\n\n${tail}` : ""}`,
+						content: `watch ${plan(watch.id, watch.label)} still running · ${formatDuration(watch.elapsedMs)} · ${formatSize(watch.outputBytes)} output${tail ? `\n\n${tail}` : ""}`,
 					},
 					{ triggerTurn: true, deliverAs: "followUp" },
 				);
@@ -634,7 +647,7 @@ export default function (pi: ExtensionAPI) {
 			}
 			remember(watch);
 			refreshStatus(ctx);
-			const summary = `watch ${watch.id} ${result.status} after ${formatDuration(result.elapsedMs)}`;
+			const summary = `watch ${plan(watch.id, watch.label)} ${result.status} after ${formatDuration(result.elapsedMs)}`;
 			try {
 				await pi.sendMessage(
 					{
@@ -668,6 +681,10 @@ With \`background: true\` the call returns a handle immediately and the report, 
 			"`watch_status` is for answering a person's question about progress. It is not a way to wait, and calling it in a loop defeats the point of a watch.",
 		],
 		parameters: Type.Object({
+			title: Type.String({
+				description:
+					'What this run is for, in a few words under ~60 characters: it labels the status row, the interim messages and the report. Say why, not what — "draft PR CI for AI-1493" beats "gh pr checks".',
+			}),
 			command: Type.String({ description: "Shell command to run" }),
 			until: Type.Optional(
 				Type.String({ description: "Regex. Settle successfully as soon as a line of output matches." }),
@@ -721,6 +738,7 @@ With \`background: true\` the call returns a handle immediately and the report, 
 			const timeoutMs = Math.min(timeoutSeconds, MAX_TIMEOUT_SECONDS) * 1000;
 
 			const watch = new Watch({
+				title: plain(params.title, 60),
 				command: params.command,
 				cwd: params.cwd ?? ctx.cwd,
 				until,
@@ -749,7 +767,7 @@ With \`background: true\` the call returns a handle immediately and the report, 
 					content: [
 						{
 							type: "text",
-							text: `watch ${watch.id} started in the background\ncommand: ${watch.command}\nsettles on: ${conditions.join(", ")}\n\nThe report arrives as a message when it settles. Do not poll it.`,
+							text: `watch ${watch.id} started in the background\ntitle: ${watch.label}\ncommand: ${watch.command}\nsettles on: ${conditions.join(", ")}\n\nThe report arrives as a message when it settles. Do not poll it.`,
 						},
 					],
 					details: detailsOf(watch, true),
@@ -844,7 +862,11 @@ This is not a way to wait for completion. Done watches report themselves, so cal
 			const watch = findWatch(params.id);
 			if (!watch) throw new Error(`No watch with id "${params.id}"`);
 			const escalation = escalator.get(params.id);
-			const head = [`status: ${watch.status} after ${formatDuration(watch.elapsedMs)}`, `command: ${watch.command}`];
+			const head = [
+				`status: ${watch.status} after ${formatDuration(watch.elapsedMs)}`,
+				`title: ${watch.label}`,
+				`command: ${watch.command}`,
+			];
 			if (watch.exitCode !== null) head.push(`exit code: ${watch.exitCode}`);
 			if (watch.matchedPattern) head.push(`matched ${watch.matchedPattern}: ${watch.matchedLine}`);
 			head.push(`full log: ${watch.fullOutputPath}`);

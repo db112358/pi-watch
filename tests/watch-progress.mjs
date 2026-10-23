@@ -20,10 +20,16 @@ const pi = {
 };
 mod.default(pi);
 
+const widgets = [];
 const ctx = {
 	cwd: process.cwd(),
 	hasUI: true,
-	ui: { setStatus: () => {}, setWorkingMessage: () => {} },
+	ui: {
+		theme: { fg: (_token, text) => text },
+		setWidget: (key, content, options) => widgets.push({ key, content, options }),
+		setStatus: () => {},
+		setWorkingMessage: () => {},
+	},
 };
 
 const watch = tools.get("watch");
@@ -32,6 +38,7 @@ assert.ok(watch, "watch tool registered");
 const started = await watch.execute(
 	"call-1",
 	{
+		title: "tick demo for the progress test",
 		command: "for i in 1 2 3 4 5 6 7 8; do echo tick $i; sleep 1; done; echo ALLDONE",
 		until: "^ALLDONE",
 		background: true,
@@ -46,9 +53,17 @@ assert.match(started.content[0].text, /started in the background/);
 
 await new Promise((resolve) => setTimeout(resolve, 11_000));
 
+// The card below the editor, under andon's, carries the title and the elapsed time.
+const card = widgets.filter((entry) => entry.key === "watch" && entry.content);
+const latest = card.at(-1);
+assert.ok(latest, "watch draws a widget card");
+assert.equal(latest.options.placement, "belowEditor");
+assert.match(latest.content[0], /tick demo for the progress test/);
+assert.match(latest.content[0], /\d/);
+
 const progress = sent.filter((entry) => entry.message.customType === "watch_progress");
 assert.ok(progress.length >= 1, `expected interim messages, got ${progress.length}`);
-assert.match(progress[0].message.content, /^watch w\d+ still running · \d/);
+assert.match(progress[0].message.content, /^watch w\d+ tick demo for the progress test still running · \d/);
 assert.match(progress[0].message.content, /tick \d/);
 assert.equal(progress[0].options.triggerTurn, true);
 assert.ok(
@@ -60,13 +75,13 @@ await new Promise((resolve) => setTimeout(resolve, 3_000));
 
 const reports = sent.filter((entry) => entry.message.customType === "watch_report");
 assert.equal(reports.length, 1, "exactly one settled report");
-assert.match(reports[0].message.content, /matched after/);
+assert.match(reports[0].message.content, /tick demo for the progress test matched after/);
 
 // A silent command sends no interim messages: nothing changed to report.
 sent.length = 0;
 await watch.execute(
 	"call-2",
-	{ command: "sleep 8", background: true, progress: 5, timeout: 60 },
+	{ title: "silent run", command: "sleep 8", background: true, progress: 5, timeout: 60 },
 	undefined,
 	undefined,
 	ctx,

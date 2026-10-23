@@ -31,7 +31,7 @@ imports neither, so it cannot depend on watch state.
 
 | Tool | Purpose |
 |------|---------|
-| `watch` | Run a command, settle on a condition, optionally escalate — prefer `background: true`, with `progress` when you want to watch it unfold |
+| `watch` | Run a command, settle on a condition, optionally escalate — takes a required `title` saying what the run is for |
 | `watch_status` | Read progress without waiting, for answering a person |
 | `watch_ask` | Continue an investigating agent's session |
 | `watch_cancel` | Kill the command tree and any running investigation |
@@ -81,10 +81,22 @@ This is what a `tail`-in-a-loop cannot do: that loop runs inside one tool call, 
 output only reaches the model at the end, by which time the decision it was meant to inform has
 passed.
 
+## The status card
+
+Live watches draw a card below the editor, underneath andon's: one line per watch (at most
+three), a glyph for its state, its title and how long it has been going. A lone watch also shows
+the last line it produced, so the card says what the run is *doing*, not just that it exists.
+It replaces the footer status line, which had room for an id and a duration and nothing else.
+
+That is what `title` is for, and it is required: the card is scanned, not read, so
+`"draft PR CI for AI-1493"` earns its space where `"gh pr checks 1869"` does not. The same title
+labels the interim messages, the settled report and `watch_status`.
+
 ## Escalation
 
 ```ts
 watch({
+  title: "typecheck the API package",
   command: "npm run build",
   until: "error TS",
   onMatch: {

@@ -31,7 +31,7 @@ imports neither, so it cannot depend on watch state.
 
 | Tool | Purpose |
 |------|---------|
-| `watch` | Run a command, settle on a condition, optionally escalate — takes a required `title` saying what the run is for |
+| `watch` | Run a command, settle on a condition, optionally escalate — takes a required `title`; interim check-ins fold to one row |
 | `watch_status` | Read progress without waiting, for answering a person |
 | `watch_ask` | Continue an investigating agent's session |
 | `watch_cancel` | Kill the command tree and any running investigation |
@@ -76,6 +76,9 @@ the bytes produced and the last five lines, so a run can be watched unfolding ra
 seen settled. They are skipped when the command produced nothing new, the floor is 5s, and every
 one of them starts a turn — treat it as "check in on this run" (30–60s), not a `tail -f`. The
 settled report supersedes them.
+
+Each check-in folds to a single row — `▶ watch w2 draft PR CI · 10.0s · 35B` — like a thinking or
+tool row: `ctrl+o` opens it, and clicking the row toggles the last five lines beneath it.
 
 This is what a `tail`-in-a-loop cannot do: that loop runs inside one tool call, so its intermediate
 output only reaches the model at the end, by which time the decision it was meant to inform has

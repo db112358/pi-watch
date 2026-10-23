@@ -6,12 +6,14 @@ const jiti = createJiti(import.meta.url);
 const mod = await jiti.import(new URL("../watch/index.ts", import.meta.url).pathname);
 
 const sent = [];
+const renderers = new Map();
 const tools = new Map();
 const pi = {
 	on: () => {},
 	registerCommand: () => {},
 	registerToolRenderer: () => {},
 	registerTool: (tool) => tools.set(tool.name, tool),
+	registerMessageRenderer: (customType, renderer) => renderers.set(customType, renderer),
 	// The real handler is synchronous and returns nothing; an async stub here
 	// hides promise assumptions, which is how a `.catch()` on it once crashed pi.
 	sendMessage: (message, options) => {
@@ -70,6 +72,20 @@ assert.ok(
 	progress.every((entry) => entry.message.content.length < 4_000),
 	"an interim message should stay small",
 );
+
+const theme = { fg: (_token, text) => text, bg: (_token, text) => text, bold: (text) => text };
+const renderer = renderers.get("watch_progress");
+assert.ok(renderer, "a renderer is registered for watch_progress");
+// Box pads the row, so count the lines that carry anything.
+const rendered = renderer(progress[0].message, { expanded: false, outputPad: 1 }, theme)
+	.render(120)
+	.filter((line) => line.trim());
+assert.equal(rendered.length, 1, `collapsed to one row, got ${rendered.length}`);
+assert.match(rendered[0], /▶ watch w\d+ .* still running/);
+assert.doesNotMatch(rendered[0], /tick \d/, "the tail stays folded");
+const opened = renderer(progress[0].message, { expanded: true, outputPad: 1 }, theme).render(120);
+assert.ok(opened.length > 1, "expanded shows the tail");
+assert.match(opened.join("\n"), /tick \d/);
 
 await new Promise((resolve) => setTimeout(resolve, 3_000));
 

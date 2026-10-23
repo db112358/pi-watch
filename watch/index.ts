@@ -30,7 +30,7 @@ import {
 	ModelSelectorComponent,
 	truncateTail,
 } from "@earendil-works/pi-coding-agent";
-import { Text } from "@earendil-works/pi-tui";
+import { Box, MouseRegion, Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { type EscalationOutcome, Escalator, errorMessage, formatDuration } from "./escalation.ts";
 import {
@@ -613,13 +613,15 @@ export default function (pi: ExtensionAPI) {
 			if (watch.status !== "running" || watch.outputBytes === lastBytes) return;
 			lastBytes = watch.outputBytes;
 			const tail = watch.snapshot(5, 2_000).trimEnd();
+			const label = `watch ${plan(watch.id, watch.label)} still running · ${formatDuration(watch.elapsedMs)} · ${formatSize(watch.outputBytes)} output`;
 			try {
 				// sendMessage is synchronous: it queues a turn, it does not return one.
 				pi.sendMessage(
 					{
 						customType: "watch_progress",
 						display: true,
-						content: `watch ${plan(watch.id, watch.label)} still running · ${formatDuration(watch.elapsedMs)} · ${formatSize(watch.outputBytes)} output${tail ? `\n\n${tail}` : ""}`,
+						content: tail ? `${label}\n\n${tail}` : label,
+						details: { label, tail },
 					},
 					{ triggerTurn: true, deliverAs: "followUp" },
 				);
@@ -662,6 +664,32 @@ export default function (pi: ExtensionAPI) {
 			}
 		});
 	};
+
+	/** Rows opened by a click, keyed by the message they belong to. */
+	const progressOpen = new Set<number>();
+
+	/** An interim check-in folds to one row, like a tool row; ctrl+o or a click opens it. */
+	pi.registerMessageRenderer<{ label: string; tail?: string }>(
+		"watch_progress",
+		(message, { expanded, outputPad }, theme) => {
+			const [head, ...rest] = String(message.content).split("\n\n");
+			const label = message.details?.label ?? head;
+			const tail = message.details?.tail ?? rest.join("\n\n");
+			const open = expanded || progressOpen.has(message.timestamp);
+			let text = `${theme.fg("dim", "▶")} ${theme.fg("text", label)}`;
+			if (open && tail) text += `\n${theme.fg("dim", tail)}`;
+
+			const row = new MouseRegion(new Text(text, 0, 0), (event) => {
+				if (event.type !== "click" || event.button !== "left") return undefined;
+				if (progressOpen.has(message.timestamp)) progressOpen.delete(message.timestamp);
+				else progressOpen.add(message.timestamp);
+				return { handled: true };
+			});
+			const box = new Box(outputPad, 1, (t) => theme.bg("customMessageBg", t));
+			box.addChild(row);
+			return box;
+		},
+	);
 
 	pi.registerTool({
 		name: "watch",

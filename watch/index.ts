@@ -600,18 +600,19 @@ export default function (pi: ExtensionAPI) {
 			if (watch.status !== "running" || watch.outputBytes === lastBytes) return;
 			lastBytes = watch.outputBytes;
 			const tail = watch.snapshot(5, 2_000).trimEnd();
-			void pi
-				.sendMessage(
+			try {
+				// sendMessage is synchronous: it queues a turn, it does not return one.
+				pi.sendMessage(
 					{
 						customType: "watch_progress",
 						display: true,
 						content: `watch ${watch.id} still running · ${formatDuration(watch.elapsedMs)} · ${formatSize(watch.outputBytes)} output${tail ? `\n\n${tail}` : ""}`,
 					},
 					{ triggerTurn: true, deliverAs: "followUp" },
-				)
-				.catch(() => {
-					// Session shutting down; the log file is still on disk.
-				});
+				);
+			} catch {
+				// Session shutting down; the log file is still on disk.
+			}
 		}, everyMs);
 		void watch.done.then(() => clearInterval(timer));
 	};

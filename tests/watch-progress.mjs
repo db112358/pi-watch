@@ -12,7 +12,9 @@ const pi = {
 	registerCommand: () => {},
 	registerToolRenderer: () => {},
 	registerTool: (tool) => tools.set(tool.name, tool),
-	sendMessage: async (message, options) => {
+	// The real handler is synchronous and returns nothing; an async stub here
+	// hides promise assumptions, which is how a `.catch()` on it once crashed pi.
+	sendMessage: (message, options) => {
 		sent.push({ message, options });
 	},
 };

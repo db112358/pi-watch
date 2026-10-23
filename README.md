@@ -16,11 +16,12 @@ command actually settles. One call covers the run, and only the tail reaches the
 
 ```
 watch/
-├── README.md
 ├── index.ts        # watch/watch_status/watch_ask/watch_cancel, /watch command, Watch process wrapper
 ├── escalation.ts   # Escalator: resumable pi child sessions
 └── model.ts        # which model investigations run on, and where that choice is stored
 ```
+
+`install.fish` symlinks `watch/` into `~/.pi/agent/extensions`.
 
 `escalation.ts` imports nothing from `index.ts`. It knows how to run a prompt in a resumable
 pi session and nothing about watches, so the prompt itself is built in `index.ts`. `model.ts`
@@ -30,7 +31,7 @@ imports neither, so it cannot depend on watch state.
 
 | Tool | Purpose |
 |------|---------|
-| `watch` | Run a command, settle on a condition, optionally escalate |
+| `watch` | Run a command, settle on a condition, optionally escalate — prefer `background: true`, with `progress` when you want to watch it unfold |
 | `watch_status` | Read progress without waiting, for answering a person |
 | `watch_ask` | Continue an investigating agent's session |
 | `watch_cancel` | Kill the command tree and any running investigation |
@@ -54,12 +55,28 @@ the full log, because the model rarely needs the whole thing and can read a file
 
 ## Foreground and background
 
-Foreground (default) holds the tool call until the command settles and streams progress through
-`onUpdate`, so a long build shows its last line instead of a frozen row.
+Prefer `background: true`. It returns a handle immediately, the report arrives later as a message
+with `triggerTurn: true` that starts a new turn, and in between `watch_status` answers "how is it
+going" and `watch_cancel` stops it — the same read-and-decide loop as tailing a log, without the
+sleeping or the polling.
 
-`background: true` returns a handle immediately. The report arrives later as a message with
-`triggerTurn: true`, which starts a new turn — so there is nothing to poll. There is
-deliberately no "wait for it" tool: waiting is what the message is for.
+Foreground (the default) holds the tool call until the command settles and streams progress
+through `onUpdate`, so a long build at least shows its last line instead of a frozen row. What it
+cannot show is the middle: you cannot look at how far it has got, decide to stop, or extend the
+budget without aborting the call, which kills the command.
+
+So use foreground only for runs you know finish inside ~10 seconds — a probe, `--version`, a
+single test file. Anything whose duration is a guess belongs in the background.
+
+`progress: <seconds>` adds interim messages to a background watch: each carries the elapsed time,
+the bytes produced and the last five lines, so a run can be watched unfolding rather than only
+seen settled. They are skipped when the command produced nothing new, the floor is 5s, and every
+one of them starts a turn — treat it as "check in on this run" (30–60s), not a `tail -f`. The
+settled report supersedes them.
+
+This is what a `tail`-in-a-loop cannot do: that loop runs inside one tool call, so its intermediate
+output only reaches the model at the end, by which time the decision it was meant to inform has
+passed.
 
 ## Escalation
 
@@ -184,10 +201,10 @@ pi --extension ./watch
 
 - **No concurrency cap.** Four parallel watches that all match start four investigating agents.
 - **The status row only refreshes on output.** A silent command leaves the elapsed time stale
-  until it produces something.
+  until it produces something — and sends no `progress` messages at all.
 - **Settled watches pin their buffers.** The last 10 are kept for `watch_status`, each up to 256KB.
-- **`-p` waits for background watches.** The process stays alive until they report, because
-  quitting would cancel them.
+- **`-p` exits when the turn ends.** A background watch that outlives its turn dies with the
+  process, so in print/JSON mode use a foreground watch (or `until`) instead of `background`.
 - **A cancelled background watch still sends a report** saying the investigation was cancelled.
   The parent asked for a notification and should learn the watch ended.
 - **`/watch model` needs interactive mode.** In `-p` or JSON mode, set the model with

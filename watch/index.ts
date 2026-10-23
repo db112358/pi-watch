@@ -53,6 +53,8 @@ const DEFAULT_TAIL_LINES = 80;
 const DEFAULT_TIMEOUT_SECONDS = 1800;
 const MAX_TIMEOUT_SECONDS = 86_400;
 const PROGRESS_INTERVAL_MS = 500;
+/** Floor for `progress`: each interim message starts a turn, so faster is noise. */
+const MIN_PROGRESS_SECONDS = 5;
 const KILL_GRACE_MS = 3_000;
 const STATUS_KEY = "watch";
 /** Settled watches kept around for `watch_status`; each pins its buffer. */
@@ -587,8 +589,43 @@ export default function (pi: ExtensionAPI) {
 	const shouldEscalate = (result: WatchResult, request: EscalationRequest | undefined): request is EscalationRequest =>
 		Boolean(request) && result.status === "matched";
 
+	/**
+	 * Interim messages while a background watch runs, so a caller can see the run
+	 * evolving instead of only its end. Silent when the command produced nothing
+	 * new since the last one.
+	 */
+	const reportProgress = (watch: Watch, everyMs: number) => {
+		let lastBytes = 0;
+		const timer = setInterval(() => {
+			if (watch.status !== "running" || watch.outputBytes === lastBytes) return;
+			lastBytes = watch.outputBytes;
+			const tail = watch.snapshot(5, 2_000).trimEnd();
+			void pi
+				.sendMessage(
+					{
+						customType: "watch_progress",
+						display: true,
+						content: `watch ${watch.id} still running · ${formatDuration(watch.elapsedMs)} · ${formatSize(watch.outputBytes)} output${tail ? `\n\n${tail}` : ""}`,
+					},
+					{ triggerTurn: true, deliverAs: "followUp" },
+				)
+				.catch(() => {
+					// Session shutting down; the log file is still on disk.
+				});
+		}, everyMs);
+		void watch.done.then(() => clearInterval(timer));
+	};
+
 	/** Deliver a settled watch as a message, which starts a new turn. */
-	const reportLater = (watch: Watch, onMatch: EscalationRequest | undefined, ctx: ExtensionToolContext) => {
+	const reportLater = (
+		watch: Watch,
+		onMatch: EscalationRequest | undefined,
+		ctx: ExtensionToolContext,
+		progressSeconds: number | undefined,
+	) => {
+		if (progressSeconds && progressSeconds > 0) {
+			reportProgress(watch, Math.max(progressSeconds, MIN_PROGRESS_SECONDS) * 1000);
+		}
 		void watch.done.then(async (result) => {
 			let investigation: string | undefined;
 			if (shouldEscalate(result, onMatch)) {
@@ -621,7 +658,7 @@ Use this instead of bash for anything that may take more than a couple of minute
 
 \`onMatch\` escalates when \`until\` matches: a separate agent with its own context reads the output and investigates, and its report is returned with the result. Use it when the useful answer is not in the output itself, for example "the build failed, find out which change broke it". That agent's session persists, so \`watch_ask\` can follow up on what it found without starting over.
 
-With \`background: true\` the call returns a handle immediately and the report, including any investigation, arrives later as a message that starts a new turn. Keep working, or do nothing; do not poll, and do not re-run the command.`,
+With \`background: true\` the call returns a handle immediately and the report, including any investigation, arrives later as a message that starts a new turn. Keep working, or do nothing; do not poll, and do not re-run the command. Add \`progress\` (seconds) to have interim messages arrive while it runs — the same handle, but with the evolving tail — for a run you want to steer before it settles.`,
 		promptSnippet: "Run a long command and wait for a condition (regex, exit, or timeout)",
 		promptGuidelines: [
 			"Prefer `watch` over `bash` for builds, test suites, CI runs, and any command that may outlive a bash timeout.",
@@ -645,6 +682,11 @@ With \`background: true\` the call returns a handle immediately and the report, 
 			tail: Type.Optional(Type.Number({ description: `Lines of output to return. Default ${DEFAULT_TAIL_LINES}.` })),
 			background: Type.Optional(
 				Type.Boolean({ description: "Return immediately and deliver the report as a message later." }),
+			),
+			progress: Type.Optional(
+				Type.Number({
+					description: `Background only: seconds between interim progress messages (min ${MIN_PROGRESS_SECONDS}). Sent only when new output arrives; each one starts a turn, so keep it coarse.`,
+				}),
 			),
 			onMatch: Type.Optional(
 				Type.Object({
@@ -690,7 +732,7 @@ With \`background: true\` the call returns a handle immediately and the report, 
 			const onMatch = params.onMatch;
 
 			if (background) {
-				reportLater(watch, onMatch, ctx);
+				reportLater(watch, onMatch, ctx, params.progress);
 				refreshStatus(ctx);
 				const conditions: string[] = [];
 				if (until) conditions.push(`until ${until.source}`);

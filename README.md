@@ -1,0 +1,197 @@
+# watch — settle on a condition, not a clock
+
+Run a command and settle on a condition instead of a clock, and hand the matched output to a
+pi session that investigates it and reports back.
+
+## Why
+
+`bash` returns when the command exits or its timeout expires. A build, a test suite, or a CI
+run therefore costs a guess at the duration and a poll loop afterwards: one turn per poll, and
+the output between polls is lost.
+
+`watch` streams the output into a bounded buffer plus a full log file, and returns when the
+command actually settles. One call covers the run, and only the tail reaches the model.
+
+## Structure
+
+```
+watch/
+├── README.md
+├── index.ts        # watch/watch_status/watch_ask/watch_cancel, /watch command, Watch process wrapper
+├── escalation.ts   # Escalator: resumable pi child sessions
+└── model.ts        # which model investigations run on, and where that choice is stored
+```
+
+`escalation.ts` imports nothing from `index.ts`. It knows how to run a prompt in a resumable
+pi session and nothing about watches, so the prompt itself is built in `index.ts`. `model.ts`
+imports neither, so it cannot depend on watch state.
+
+## Tools
+
+| Tool | Purpose |
+|------|---------|
+| `watch` | Run a command, settle on a condition, optionally escalate |
+| `watch_status` | Read progress without waiting, for answering a person |
+| `watch_ask` | Continue an investigating agent's session |
+| `watch_cancel` | Kill the command tree and any running investigation |
+
+## Settling
+
+`watch` returns on the first of:
+
+- a line matching `until` — success, and the trigger for `onMatch`
+- a line matching `fail` — checked before `until`, so a failure that also matches the success
+  pattern still reports as a failure
+- the process exiting — exit code preserved
+- `timeout` elapsing — the accumulated output is returned too, so a timeout is a free checkpoint
+
+Settling early kills the process group (SIGTERM, then SIGKILL after 3s), so `until: "Ready"`
+on a server that keeps running does not leak it. Patterns are matched against every chunk as
+it arrives with an 8KB overlap, so a match split across two writes is not missed.
+
+The result carries the tail (`tail`, default 80 lines), the total output size, and a path to
+the full log, because the model rarely needs the whole thing and can read a file if it does.
+
+## Foreground and background
+
+Foreground (default) holds the tool call until the command settles and streams progress through
+`onUpdate`, so a long build shows its last line instead of a frozen row.
+
+`background: true` returns a handle immediately. The report arrives later as a message with
+`triggerTurn: true`, which starts a new turn — so there is nothing to poll. There is
+deliberately no "wait for it" tool: waiting is what the message is for.
+
+## Escalation
+
+```ts
+watch({
+  command: "npm run build",
+  until: "error TS",
+  onMatch: {
+    task: "The build failed. Find which file and line, and what type mismatch caused it.",
+  },
+})
+```
+
+On an `until` match the extension spawns a pi child with the command, exit code, matched line,
+log path, the last 400 lines of output, and the brief. Its reply is appended to the result under
+`--- investigation ---`. The child gets a session with tools, not the raw text, so it can open
+the failing file instead of guessing from the log.
+
+Escalation fires only on a `matched` result. A `fail` pattern means the parent already knows
+what went wrong, so there is nothing to investigate.
+
+| Option | Default | Notes |
+|--------|---------|-------|
+| `onMatch.task` | required | What to find out. The agent sees the output, not your conversation |
+| `onMatch.tools` | `read, grep, find, ls` | Add `bash` only when it must reproduce or query something |
+| `onMatch.model` | cheapest configured | See below |
+
+Usage is reported with the result, so cost does not disappear into a turn nobody watched:
+
+```
+[investigation: 12k in / 2k out, $0.04 · session w3-investigation in ~/.pi/agent/watch-sessions]
+```
+
+### Model
+
+An investigation reads output and answers a question, so it defaults to the cheap tier
+(`fireworks/accounts/fireworks/models/glm-5p3-flash`) rather than inheriting the parent's model.
+Pick a different one with `/watch`:
+
+| Command | Effect |
+|---------|--------|
+| `/watch` | Print the effective model, where it came from, and the config path |
+| `/watch model` | pi's own `/model` picker |
+| `/watch model <spec>` | Accepts `provider/id`, a bare id, or a fragment (`haiku`, `glm`) |
+| `/watch model default` | Clear the override |
+
+The picker is the same `ModelSelectorComponent` the built-in `/model` command builds, so search,
+scope toggle, catalog refresh and auth filtering behave identically, and the model currently in
+effect is preselected. A fragment matching several models opens it with the search prefilled
+rather than guessing. Only TUI can render a custom component: RPC falls back to a plain dialog
+list, and `-p` reports how to set the model from a file or env var.
+
+The choice is written to `~/.pi/agent/watch.json` and applies to every session.
+
+Resolution order:
+
+1. `onMatch.model` — a single investigation, set by the model
+2. `/watch model` — persisted per user
+3. `PI_WATCH_INVESTIGATION_MODEL`
+4. the cheap default, if that provider has credentials and is in the session's scoped models
+5. otherwise the parent's model
+
+The persisted choice outranks the env var because it is the deliberate one. Steps 4 and 5 are
+fallbacks, so an unconfigured default provider is not an error and the feature works on any
+provider at all.
+
+## Asking how it's going
+
+A watch reports itself, so nobody needs to poll it. For a person asking mid-flight:
+
+- **The status row** shows every running watch with elapsed time, and whether an investigation
+  is running.
+- **`watch_status(id)`** returns status, elapsed, exit code, matched line, the last lines of
+  output, and the escalation's state. It is deterministic and costs no tokens.
+- **Resume the investigating agent directly.** Its session lives outside the project's session
+  list but stays resumable, and `watch_status` prints the exact command:
+
+  ```sh
+  pi -p --session w3-investigation --session-dir ~/.pi/agent/watch-sessions
+  ```
+
+- **`watch_ask(id, message)`** sends that agent a follow-up as a user message, so it keeps its
+  context. This is cheaper and more precise than escalating again.
+
+`watch_ask` refuses while the agent is still working. pi does not lock session files, so a
+second process writing the same session would corrupt it: wait for the report, or cancel.
+
+`watch_status` answers a person's question; it is not a way to wait.
+
+## Security model
+
+This tool runs commands with the same OS permissions as pi, and `onMatch` starts a child pi that
+inherits the cwd and environment.
+
+- **The default investigation tool set is read-only** (`read`, `grep`, `find`, `ls`). Granting
+  `bash` makes the investigating agent able to run anything, which is a different risk class:
+  it acts without a person to approve its commands, because a headless child has no TUI.
+- **The brief is trusted input.** Whatever the parent model writes in `onMatch.task` steers an
+  agent that may hold write or bash tools if you granted them.
+- **Escalation sessions are conversation transcripts** and are kept under
+  `~/.pi/agent/watch-sessions`, not in the project's session list. Remove that directory to
+  discard them.
+- The matched output is attacker-influenced if the command's output is. A build log from
+  untrusted input is untrusted input.
+
+## Installation
+
+```sh
+fish install.fish
+```
+
+That symlinks `watch/` into `~/.pi/agent/extensions` and points this repo's
+`node_modules` at the active pi release for editor types. To do it by hand, or to
+load it for one run without installing:
+
+```sh
+ln -sfn "$(pwd)/watch" ~/.pi/agent/extensions/watch
+pi --extension ./watch
+```
+
+## Limitations
+
+- **No concurrency cap.** Four parallel watches that all match start four investigating agents.
+- **The status row only refreshes on output.** A silent command leaves the elapsed time stale
+  until it produces something.
+- **Settled watches pin their buffers.** The last 10 are kept for `watch_status`, each up to 256KB.
+- **`-p` waits for background watches.** The process stays alive until they report, because
+  quitting would cancel them.
+- **A cancelled background watch still sends a report** saying the investigation was cancelled.
+  The parent asked for a notification and should learn the watch ended.
+- **`/watch model` needs interactive mode.** In `-p` or JSON mode, set the model with
+  `PI_WATCH_INVESTIGATION_MODEL` or by editing `~/.pi/agent/watch.json`.
+- **The built-in picker reaches into `ModelRegistry`'s private `runtime`.** The class is exported
+  and aliased to the running build, but the catalog it reads is not, so the field is read through
+  a cast. If that field disappears, `/watch model` falls back to a plain dialog instead of failing.

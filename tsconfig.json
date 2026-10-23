@@ -1,0 +1,58 @@
+{
+  // LSP-only config for the pi-watch repo (pi ignores this at runtime — its loader aliases
+  // these same packages itself, see dist/core/extensions/loader.js getAliases()).
+  // `node_modules` is a symlink to the active managed release's node_modules;
+  // run `dbe pi install-types` after `pi update` to refresh it. Managed
+  // installs have no stable path.
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "lib": ["ES2022"],
+    "strict": true,
+    "skipLibCheck": true,
+    "noEmit": true,
+    // @types/node for node:* builtins
+    "typeRoots": ["${configDir}/node_modules/@types"],
+    "types": ["node"],
+    // Mirror of pi's runtime alias table (loader.js getAliases())
+    "paths": {
+      "@earendil-works/pi-coding-agent": [
+        "${configDir}/node_modules/@earendil-works/pi-coding-agent/dist/index.d.ts"
+      ],
+      "@earendil-works/pi-coding-agent/*": [
+        "${configDir}/node_modules/@earendil-works/pi-coding-agent/dist/*"
+      ],
+      "@earendil-works/pi-agent-core": [
+        "${configDir}/node_modules/@earendil-works/pi-agent-core/dist/index.d.ts"
+      ],
+      "@earendil-works/pi-agent-core/*": [
+        "${configDir}/node_modules/@earendil-works/pi-agent-core/dist/*"
+      ],
+      "@earendil-works/pi-tui": [
+        "${configDir}/node_modules/@earendil-works/pi-tui/dist/index.d.ts"
+      ],
+      "@earendil-works/pi-tui/*": [
+        "${configDir}/node_modules/@earendil-works/pi-tui/dist/*"
+      ],
+      // pi aliases the pi-ai root to the compat entrypoint (superset of core)
+      "@earendil-works/pi-ai": [
+        "${configDir}/node_modules/@earendil-works/pi-ai/dist/compat.d.ts"
+      ],
+      "@earendil-works/pi-ai/compat": [
+        "${configDir}/node_modules/@earendil-works/pi-ai/dist/compat.d.ts"
+      ],
+      "@earendil-works/pi-ai/oauth": [
+        "${configDir}/node_modules/@earendil-works/pi-ai/dist/oauth.d.ts"
+      ],
+      "@earendil-works/pi-ai/providers/*": [
+        "${configDir}/node_modules/@earendil-works/pi-ai/dist/providers/*"
+      ],
+      "typebox": ["${configDir}/node_modules/typebox/build/index.d.mts"],
+      "typebox/*": ["${configDir}/node_modules/typebox/build/*"],
+      "@sinclair/typebox": ["${configDir}/node_modules/typebox/build/index.d.mts"],
+      "@sinclair/typebox/*": ["${configDir}/node_modules/typebox/build/*"]
+    }
+  },
+  "include": ["watch/**/*.ts"]
+}

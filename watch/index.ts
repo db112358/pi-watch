@@ -561,9 +561,35 @@ export default function (pi: ExtensionAPI) {
 	/** `w2 draft-PR CI` — the title is why the card is worth reading. */
 	const plan = (id: string, label: string) => `${id} ${plain(label, 36)}`;
 
+	/** Painted by the widget factory below; kept so a tick can repaint it. */
+	let cardTui: { requestRender: () => void } | undefined;
+	let cardTimer: NodeJS.Timeout | undefined;
+
+	const cardRows = (theme: Theme | undefined): string[] => {
+		const dim = (text: string) => (theme ? theme.fg("dim", text) : text);
+		const watches = [...live].slice(0, 3);
+		const rows = watches.map((watch) => {
+			const phase = escalator.isRunning(watch.id)
+				? " investigating"
+				: watch.status === "running"
+					? ""
+					: ` ${watch.status}`;
+			const glyph = STATUS_GLYPH[watch.status] ?? "●";
+			return `${glyph} ${plan(watch.id, watch.label)}  ${dim(`${formatDuration(watch.elapsedMs)}${phase}`)}`;
+		});
+		// A lone watch says what it is doing, not just how long it has been at it.
+		const only = watches[0];
+		if (watches.length === 1 && only.status === "running" && only.lastLine) {
+			rows.push(dim(`  ${plain(only.lastLine, 100)}`));
+		}
+		if (live.size > watches.length) rows.push(dim(`+${live.size - watches.length} more`));
+		return rows;
+	};
+
 	/**
 	 * Live watches as a card below the editor — the only signal once a watch
-	 * outlives its turn. Registered after andon's card, so it sits beneath it.
+	 * outlives its turn. A component rather than lines, so the elapsed time is
+	 * read when the frame is painted and never goes stale.
 	 */
 	const refreshStatus = (ctx: ExtensionToolContext) => {
 		if (!ctx.hasUI) return;
@@ -571,29 +597,21 @@ export default function (pi: ExtensionAPI) {
 		try {
 			if (live.size === 0) {
 				ctx.ui.setWidget(WIDGET_KEY, undefined);
+				if (cardTimer) clearInterval(cardTimer);
+				cardTimer = undefined;
+				cardTui = undefined;
 				return;
 			}
-			const theme = ctx.ui.theme;
-			const dim = (text: string) => (theme ? theme.fg("dim", text) : text);
-			const watches = [...live].slice(0, 3);
-			const lines = watches.map((watch) => {
-				const phase = escalator.isRunning(watch.id)
-					? " investigating"
-					: watch.status === "running"
-						? ""
-						: ` ${watch.status}`;
-				const glyph = STATUS_GLYPH[watch.status] ?? "●";
-				return `${glyph} ${plan(watch.id, watch.label)}  ${dim(`${formatDuration(watch.elapsedMs)}${phase}`)}`;
-			});
-			// A lone watch says what it is doing, not just how long it has been at it.
-			const only = watches[0];
-			if (watches.length === 1 && only.status === "running" && only.lastLine) {
-				lines.push(dim(`  ${plain(only.lastLine, 100)}`));
-			}
-			if (live.size > watches.length) {
-				lines.push(dim(`+${live.size - watches.length} more`));
-			}
-			ctx.ui.setWidget(WIDGET_KEY, lines, { placement: "belowEditor" });
+			// Registered after andon's card, so it sits beneath it.
+			ctx.ui.setWidget(
+				WIDGET_KEY,
+				(tui, theme) => {
+					cardTui = tui;
+					cardTimer ??= setInterval(() => cardTui?.requestRender(), 1_000);
+					return { render: () => cardRows(theme), invalidate: () => {} };
+				},
+				{ placement: "belowEditor" },
+			);
 		} catch {
 			// The UI is gone; the log file is still on disk.
 		}
@@ -680,6 +698,14 @@ export default function (pi: ExtensionAPI) {
 			return new Text(expanded && tail ? `${row}\n${theme.fg("dim", tail)}` : row, 0, 0);
 		},
 	);
+
+	/** A settled watch is one row as well; ctrl+o opens the tail and the investigation. */
+	pi.registerMessageRenderer("watch_report", (message, { expanded }, theme) => {
+		const [head, ...rest] = String(message.content).split("\n\n");
+		const body = rest.join("\n\n");
+		const row = `${theme.fg("dim", "✓")} ${theme.fg("text", head)}`;
+		return new Text(expanded && body ? `${row}\n${theme.fg("dim", body)}` : row, 0, 0);
+	});
 
 	pi.registerTool({
 		name: "watch",

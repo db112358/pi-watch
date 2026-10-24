@@ -41,6 +41,8 @@ assert.ok(
 	"title is required, so the card always says why the watch is running",
 );
 
+const theme = { fg: (_token, text) => text, bg: (_token, text) => text, bold: (text) => text };
+
 const started = await watch.execute(
 	"call-1",
 	{
@@ -58,14 +60,17 @@ const started = await watch.execute(
 assert.match(started.content[0].text, /started in the background/);
 assert.match(started.content[0].text, /title: tick demo for the progress test/);
 
-await new Promise((resolve) => setTimeout(resolve, 11_000));
+await new Promise((resolve) => setTimeout(resolve, 6_000));
 
-// The card below the editor, under andon's, carries the title and the elapsed time.
+// The card below the editor, under andon's, reads the clock when it paints.
 const cards = widgets.filter((entry) => entry.key === "watch" && entry.content);
 const latest = cards.at(-1);
 assert.ok(latest, "watch draws a widget card");
 assert.equal(latest.options.placement, "belowEditor");
-assert.match(latest.content[0], /tick demo for the progress test/);
+assert.equal(typeof latest.content, "function", "the card is a component, not frozen lines");
+const card = latest.content({ requestRender: () => {} }, theme).render(80);
+assert.match(card[0], /tick demo for the progress test/);
+assert.match(card[0], /⏳/, "running watches show an hourglass");
 
 const progress = sent.filter((entry) => entry.message.customType === "watch_progress");
 assert.ok(progress.length >= 1, `expected interim messages, got ${progress.length}`);
@@ -76,7 +81,6 @@ assert.match(
 assert.match(progress[0].message.content, /tick \d/);
 assert.equal(progress[0].options.triggerTurn, true);
 
-const theme = { fg: (_token, text) => text, bg: (_token, text) => text, bold: (text) => text };
 const renderer = renderers.get("watch_progress");
 assert.ok(renderer, "a renderer is registered for watch_progress");
 
@@ -90,11 +94,16 @@ const opened = renderer(progress[0].message, { expanded: true, outputPad: 1 }, t
 assert.ok(opened.length > 1, "expanded shows the tail");
 assert.match(opened.join("\n"), /tick \d/);
 
-await new Promise((resolve) => setTimeout(resolve, 3_000));
+await new Promise((resolve) => setTimeout(resolve, 6_000));
 
 const reports = sent.filter((entry) => entry.message.customType === "watch_report");
 assert.equal(reports.length, 1, "exactly one settled report");
 assert.match(reports[0].message.content, /tick demo for the progress test matched after/);
+assert.equal(
+	widgets.filter((entry) => entry.key === "watch").at(-1).content,
+	undefined,
+	"the card clears when nothing is running",
+);
 
 // A silent command sends no interim messages: nothing changed to report.
 sent.length = 0;

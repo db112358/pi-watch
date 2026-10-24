@@ -94,6 +94,7 @@ const folded = blankless(row)[0];
 assert.match(folded, /^ ?watch w\d+ tick demo for the progress test/);
 assert.match(folded, /still running · \d/);
 assert.ok(folded.trimEnd().endsWith("output"), "the outcome is right-aligned at the end");
+assert.ok(/ {2}$/.test(folded), "the row keeps clear of the right edge");
 assert.ok(folded.indexOf("still running") > 40, "the title gets the left, the outcome the right");
 assert.doesNotMatch(folded, /tick \d/, "the tail stays folded");
 
@@ -128,7 +129,7 @@ const reportRow = reportRenderer(reports[0].message, reportOptions, theme);
 assert.equal(blankless(reportRow).length, 1, "the report folds to one row");
 const reportLine = blankless(reportRow)[0];
 assert.match(reportLine, /watch w\d+ tick demo for the progress test/);
-assert.match(reportLine, /matched after \d+\.\ds$/, "the outcome is right-aligned");
+assert.match(reportLine.trimEnd(), /matched after \d+\.\ds$/, "the outcome is right-aligned");
 assert.ok(!reportLine.includes("…"), `the full title fits: ${reportLine}`);
 reportRow.handleMouse({ type: "click", button: "left", x: 2, y: 1, width: 120, height: 3, screenX: 0, screenY: 0 });
 assert.equal(reportInvalidated, 1, "clicking the report invalidates it");

@@ -565,8 +565,11 @@ export default function (pi: ExtensionAPI) {
 		return text;
 	};
 
-	/** `w2 draft-PR CI` — the title is why the card is worth reading. */
-	const plan = (id: string, label: string) => `${id} ${plain(label, 36)}`;
+	/**
+	 * `w2 draft-PR CI` — the title is why the row is worth reading, so it travels
+	 * whole: the surfaces that have a width trim it when they paint.
+	 */
+	const plan = (id: string, label: string) => `${id} ${plain(label, 60)}`;
 
 	/** Painted by the widget factory below; kept so a tick can repaint it. */
 	let cardTui: { requestRender: () => void } | undefined;
@@ -582,7 +585,7 @@ export default function (pi: ExtensionAPI) {
 					? ""
 					: ` ${watch.status}`;
 			const glyph = STATUS_GLYPH[watch.status] ?? "●";
-			return `${glyph} ${plan(watch.id, watch.label)}  ${dim(`${formatDuration(watch.elapsedMs)}${phase}`)}`;
+			return plain(`${glyph} ${plan(watch.id, watch.label)}`, 60) + `  ${dim(`${formatDuration(watch.elapsedMs)}${phase}`)}`;
 		});
 		// A lone watch says what it is doing, not just how long it has been at it.
 		const only = watches[0];

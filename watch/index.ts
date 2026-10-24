@@ -726,10 +726,12 @@ export default function (pi: ExtensionAPI) {
 		const lead = `${theme.fg("dim", theme.bold("watch"))} ${theme.fg("dim", id)}`;
 		const row: Component = {
 			render(width: number) {
+				// Keep the text off the right edge, matching the frame's left inset.
+				const usable = Math.max(24, width - 2);
 				const right = status ? theme.fg("dim", status) : "";
-				const room = Math.max(12, width - visibleWidth(lead) - visibleWidth(right) - 2);
+				const room = Math.max(12, usable - visibleWidth(lead) - visibleWidth(right) - 2);
 				const main = truncateToWidth(theme.fg("text", title), room, "…");
-				const pad = Math.max(1, width - visibleWidth(lead) - visibleWidth(main) - visibleWidth(right));
+				const pad = Math.max(1, usable - visibleWidth(lead) - visibleWidth(main) - visibleWidth(right));
 				const lines = [`${lead} ${main}${" ".repeat(pad)}${right}`];
 				if (open && body) {
 					lines.push(...body.split("\n").map((line) => theme.fg("dim", `  ${line}`)));

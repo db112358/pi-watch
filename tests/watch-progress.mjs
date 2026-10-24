@@ -90,8 +90,12 @@ const options = { expanded: false, outputPad: 1, invalidate: () => invalidated++
 const row = renderer(progress[0].message, options, theme);
 const blankless = (component) => component.render(120).filter((line) => line.trim());
 assert.equal(blankless(row).length, 1, "folds to one row");
-assert.match(blankless(row)[0], /watch w\d+ .* still running/);
-assert.doesNotMatch(blankless(row).join(""), /tick \d/, "the tail stays folded");
+const folded = blankless(row)[0];
+assert.match(folded, /^ ?watch w\d+ tick demo for the progress test/);
+assert.match(folded, /still running · \d/);
+assert.ok(folded.trimEnd().endsWith("output"), "the outcome is right-aligned at the end");
+assert.ok(folded.indexOf("still running") > 40, "the title gets the left, the outcome the right");
+assert.doesNotMatch(folded, /tick \d/, "the tail stays folded");
 
 // A click opens it and asks pi to repaint; ctrl+o opens every row at once.
 row.handleMouse({ type: "click", button: "left", x: 2, y: 1, width: 120, height: 3, screenX: 0, screenY: 0 });
@@ -122,7 +126,10 @@ let reportInvalidated = 0;
 const reportOptions = { expanded: false, outputPad: 1, invalidate: () => reportInvalidated++ };
 const reportRow = reportRenderer(reports[0].message, reportOptions, theme);
 assert.equal(blankless(reportRow).length, 1, "the report folds to one row");
-assert.match(blankless(reportRow)[0], /watch w\d+ .* matched after/);
+const reportLine = blankless(reportRow)[0];
+assert.match(reportLine, /watch w\d+ tick demo for the progress test/);
+assert.match(reportLine, /matched after \d+\.\ds$/, "the outcome is right-aligned");
+assert.ok(!reportLine.includes("…"), `the full title fits: ${reportLine}`);
 reportRow.handleMouse({ type: "click", button: "left", x: 2, y: 1, width: 120, height: 3, screenX: 0, screenY: 0 });
 assert.equal(reportInvalidated, 1, "clicking the report invalidates it");
 assert.ok(blankless(reportRenderer(reports[0].message, reportOptions, theme)).length > 1);

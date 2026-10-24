@@ -30,7 +30,14 @@ import {
 	ModelSelectorComponent,
 	truncateTail,
 } from "@earendil-works/pi-coding-agent";
-import { Box, MouseRegion, Text } from "@earendil-works/pi-tui";
+import {
+	Box,
+	MouseRegion,
+	Text,
+	type Component,
+	truncateToWidth,
+	visibleWidth,
+} from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { type EscalationOutcome, Escalator, errorMessage, formatDuration } from "./escalation.ts";
 import {
@@ -631,7 +638,10 @@ export default function (pi: ExtensionAPI) {
 			if (watch.status !== "running" || watch.outputBytes === lastBytes) return;
 			lastBytes = watch.outputBytes;
 			const tail = watch.snapshot(5, 2_000).trimEnd();
-			const label = `watch ${plan(watch.id, watch.label)} still running · ${formatDuration(watch.elapsedMs)} · ${formatSize(watch.outputBytes)} output`;
+			const id = watch.id;
+			const title = watch.label;
+			const status = `still running · ${formatDuration(watch.elapsedMs)} · ${formatSize(watch.outputBytes)} output`;
+			const label = `watch ${plan(watch.id, watch.label)} ${status}`;
 			try {
 				// sendMessage is synchronous: it queues a turn, it does not return one.
 				pi.sendMessage(
@@ -639,7 +649,7 @@ export default function (pi: ExtensionAPI) {
 						customType: "watch_progress",
 						display: true,
 						content: tail ? `${label}\n\n${tail}` : label,
-						details: { label, tail },
+						details: { id, title, status, tail },
 					},
 					{ triggerTurn: true, deliverAs: "followUp" },
 				);
@@ -667,13 +677,15 @@ export default function (pi: ExtensionAPI) {
 			}
 			remember(watch);
 			refreshStatus(ctx);
-			const summary = `watch ${plan(watch.id, watch.label)} ${result.status} after ${formatDuration(result.elapsedMs)}`;
+			const status = `${result.status} after ${formatDuration(result.elapsedMs)}`;
+			const summary = `watch ${plan(watch.id, watch.label)} ${status}`;
 			try {
 				await pi.sendMessage(
 					{
 						customType: "watch_report",
 						display: true,
 						content: `${summary}\n\n${formatResult(result, investigation)}`,
+						details: { id: watch.id, title: watch.label, status, body: formatResult(result, investigation) },
 					},
 					{ triggerTurn: true, deliverAs: "followUp" },
 				);
@@ -687,8 +699,9 @@ export default function (pi: ExtensionAPI) {
 	const overrides = new Map<number, boolean>();
 
 	/**
-	 * One foldable row in the shape of zen's thinking row: a bold `watch` lead and
-	 * no chevron, with the body under it when open.
+	 * One foldable row: a dim lead, the run's title, and its outcome right-aligned
+	 * in the dim register zen gives an action's summary. The title gets the room
+	 * the outcome leaves, so nothing is chopped for a fixed budget.
 	 */
 	const foldRow = (
 		message: { timestamp: number; content: unknown; details?: unknown },
@@ -698,15 +711,31 @@ export default function (pi: ExtensionAPI) {
 		theme: Theme,
 	) => {
 		void expanded; // a check-in is a glance: it stays folded whatever ctrl+o says
+		const details = message.details as
+			| { id?: string; title?: string; status?: string; tail?: string; body?: string }
+			| undefined;
 		const [head, ...rest] = String(message.content).split("\n\n");
-		const details = message.details as { label?: string; tail?: string } | undefined;
-		const label = details?.label ?? head;
-		const body = details?.tail ?? rest.join("\n\n");
+		const id = details?.id ?? "";
+		const title = details?.title ?? head.replace(/^watch /, "");
+		const status = details?.status ?? "";
+		const body = details?.body ?? details?.tail ?? rest.join("\n\n");
 		const open = overrides.get(message.timestamp) ?? false;
-		const main = label.replace(/^watch /, "");
-		const row = `${theme.fg("toolTitle", theme.bold("watch"))} ${theme.fg("text", main)}`;
-		const text = open && body ? `${row}\n${theme.fg("dim", body)}` : row;
-		const row_ = new MouseRegion(new Text(text, 0, 0), (event) => {
+		const lead = `${theme.fg("dim", theme.bold("watch"))} ${theme.fg("dim", id)}`;
+		const row: Component = {
+			render(width: number) {
+				const right = status ? theme.fg("dim", status) : "";
+				const room = Math.max(12, width - visibleWidth(lead) - visibleWidth(right) - 2);
+				const main = truncateToWidth(theme.fg("text", title), room, "…");
+				const pad = Math.max(1, width - visibleWidth(lead) - visibleWidth(main) - visibleWidth(right));
+				const lines = [`${lead} ${main}${" ".repeat(pad)}${right}`];
+				if (open && body) {
+					lines.push(...body.split("\n").map((line) => theme.fg("dim", `  ${line}`)));
+				}
+				return lines;
+			},
+			invalidate() {},
+		};
+		const clickable = new MouseRegion(row, (event) => {
 			if (event.type !== "click" || event.button !== "left") return undefined;
 			overrides.set(message.timestamp, !open);
 			invalidate?.();
@@ -714,7 +743,7 @@ export default function (pi: ExtensionAPI) {
 		});
 		// The same frame a default custom message gets: one column in, one line clear.
 		const box = new Box(outputPad, 1, (t) => theme.bg("customMessageBg", t));
-		box.addChild(row_);
+		box.addChild(clickable);
 		return box;
 	};
 

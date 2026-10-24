@@ -77,10 +77,17 @@ seen settled. They are skipped when the command produced nothing new, the floor 
 one of them starts a turn — treat it as "check in on this run" (30–60s), not a `tail -f`. The
 settled report supersedes them.
 
-Each check-in folds to a single row in the shape of zen's thinking row — a bold `watch` lead, no
-chevron: `watch w2 draft PR CI · 10.0s · 35B`. The settled report folds the same way
-(`watch w2 draft PR CI matched after 30.4s`). Both wear the standard custom-message frame, and
-clicking either opens the tail (and any investigation) beneath it.
+Each check-in folds to a single row: a dim `watch w2` lead, the run's title, and the outcome
+right-aligned in the dim register zen gives an action's summary —
+
+```
+ watch w2 draft PR CI                                  still running · 10.0s · 35B
+ watch w2 draft PR CI                                        matched after 30.4s
+```
+
+The title takes whatever room the outcome leaves, so nothing is cut for a fixed budget. Both rows
+wear the standard custom-message frame, and clicking either opens the tail (and any investigation)
+beneath it.
 
 `ctrl+o` deliberately does not unfold them: a check-in is a glance, several arrive per run, and
 the click is the door.

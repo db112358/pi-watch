@@ -585,7 +585,7 @@ export default function (pi: ExtensionAPI) {
 					? ""
 					: ` ${watch.status}`;
 			const glyph = STATUS_GLYPH[watch.status] ?? "●";
-			return plain(`${glyph} ${plan(watch.id, watch.label)}`, 60) + `  ${dim(`${formatDuration(watch.elapsedMs)}${phase}`)}`;
+			return plain(`${glyph} ${watch.label}`, 60) + `  ${dim(`${formatDuration(watch.elapsedMs)}${phase}`)}`;
 		});
 		// A lone watch says what it is doing, not just how long it has been at it.
 		const only = watches[0];
@@ -718,12 +718,13 @@ export default function (pi: ExtensionAPI) {
 			| { id?: string; title?: string; status?: string; tail?: string; body?: string }
 			| undefined;
 		const [head, ...rest] = String(message.content).split("\n\n");
-		const id = details?.id ?? "";
 		const title = details?.title ?? head.replace(/^watch /, "");
 		const status = details?.status ?? "";
 		const body = details?.body ?? details?.tail ?? rest.join("\n\n");
 		const open = overrides.get(message.timestamp) ?? false;
-		const lead = `${theme.fg("dim", theme.bold("watch"))} ${theme.fg("dim", id)}`;
+		// The id is for addressing a watch (`watch_status`, `watch_cancel`), not
+		// for the reader glancing at the row.
+		const lead = theme.fg("dim", theme.bold("watch"));
 		const row: Component = {
 			render(width: number) {
 				// Keep the text off the right edge, matching the frame's left inset.

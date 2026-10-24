@@ -91,7 +91,8 @@ const row = renderer(progress[0].message, options, theme);
 const blankless = (component) => component.render(120).filter((line) => line.trim());
 assert.equal(blankless(row).length, 1, "folds to one row");
 const folded = blankless(row)[0];
-assert.match(folded, /^ ?watch w\d+ tick demo for the progress test/);
+assert.match(folded, /^ ?watch tick demo for the progress test/);
+assert.doesNotMatch(folded, /w\d+/, "the row does not carry the watch id");
 assert.match(folded, /still running · \d/);
 assert.ok(folded.trimEnd().endsWith("output"), "the outcome is right-aligned at the end");
 assert.ok(/ {2}$/.test(folded), "the row keeps clear of the right edge");
@@ -128,7 +129,7 @@ const reportOptions = { expanded: false, outputPad: 1, invalidate: () => reportI
 const reportRow = reportRenderer(reports[0].message, reportOptions, theme);
 assert.equal(blankless(reportRow).length, 1, "the report folds to one row");
 const reportLine = blankless(reportRow)[0];
-assert.match(reportLine, /watch w\d+ tick demo for the progress test/);
+assert.match(reportLine, /watch tick demo for the progress test/);
 assert.match(reportLine.trimEnd(), /matched after \d+\.\ds$/, "the outcome is right-aligned");
 assert.ok(!reportLine.includes("…"), `the full title fits: ${reportLine}`);
 reportRow.handleMouse({ type: "click", button: "left", x: 2, y: 1, width: 120, height: 3, screenX: 0, screenY: 0 });

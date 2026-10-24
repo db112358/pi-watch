@@ -77,13 +77,17 @@ seen settled. They are skipped when the command produced nothing new, the floor 
 one of them starts a turn — treat it as "check in on this run" (30–60s), not a `tail -f`. The
 settled report supersedes them.
 
-Each check-in folds to a single row: a dim `watch w2` lead, the run's title, and the outcome
+Each check-in folds to a single row: a dim `watch` lead, the run's title, and the outcome
 right-aligned in the dim register zen gives an action's summary —
 
 ```
- watch w2 draft PR CI                                  still running · 10.0s · 35B
- watch w2 draft PR CI                                        matched after 30.4s
+ watch draft PR CI                                     still running · 10.0s · 35B
+ watch draft PR CI                                           matched after 30.4s
 ```
+
+The id is not in the row: `w2` exists to address a watch in `watch_status`, `watch_ask` and
+`watch_cancel`, and the tool result that starts it — a reader glancing at the transcript does not
+need it.
 
 The title takes whatever room the outcome leaves, so nothing is cut for a fixed budget. Both rows
 wear the standard custom-message frame, and clicking either opens the tail (and any investigation)

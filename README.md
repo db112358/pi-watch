@@ -226,6 +226,10 @@ ln -sfn "$(pwd)/watch" ~/.pi/agent/extensions/watch
 pi --extension ./watch
 ```
 
+Editing a renderer needs a restart, not `/reload`: the reload swaps tools, but a message already
+rendered with the old closure keeps it, so a row can look a commit out of date until the process
+comes back.
+
 ## Limitations
 
 - **No concurrency cap.** Four parallel watches that all match start four investigating agents.

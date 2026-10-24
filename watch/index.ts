@@ -30,7 +30,7 @@ import {
 	ModelSelectorComponent,
 	truncateTail,
 } from "@earendil-works/pi-coding-agent";
-import { MouseRegion, Text } from "@earendil-works/pi-tui";
+import { Box, MouseRegion, Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { type EscalationOutcome, Escalator, errorMessage, formatDuration } from "./escalation.ts";
 import {
@@ -693,35 +693,41 @@ export default function (pi: ExtensionAPI) {
 	const foldRow = (
 		message: { timestamp: number; content: unknown; details?: unknown },
 		expanded: boolean,
+		outputPad: number,
 		invalidate: (() => void) | undefined,
 		theme: Theme,
 	) => {
+		void expanded; // a check-in is a glance: it stays folded whatever ctrl+o says
 		const [head, ...rest] = String(message.content).split("\n\n");
 		const details = message.details as { label?: string; tail?: string } | undefined;
 		const label = details?.label ?? head;
 		const body = details?.tail ?? rest.join("\n\n");
-		const open = overrides.get(message.timestamp) ?? expanded;
+		const open = overrides.get(message.timestamp) ?? false;
 		const main = label.replace(/^watch /, "");
 		const row = `${theme.fg("toolTitle", theme.bold("watch"))} ${theme.fg("text", main)}`;
 		const text = open && body ? `${row}\n${theme.fg("dim", body)}` : row;
-		return new MouseRegion(new Text(text, 0, 0), (event) => {
+		const row_ = new MouseRegion(new Text(text, 0, 0), (event) => {
 			if (event.type !== "click" || event.button !== "left") return undefined;
 			overrides.set(message.timestamp, !open);
 			invalidate?.();
 			return { handled: true };
 		});
+		// The same frame a default custom message gets: one column in, one line clear.
+		const box = new Box(outputPad, 1, (t) => theme.bg("customMessageBg", t));
+		box.addChild(row_);
+		return box;
 	};
 
 	/** An interim check-in folds to one row; clicking it opens the tail. */
 	pi.registerMessageRenderer<{ label: string; tail?: string }>(
 		"watch_progress",
-		(message, { expanded, invalidate }, theme) =>
-			foldRow(message, expanded, invalidate, theme),
+		(message, { expanded, outputPad, invalidate }, theme) =>
+			foldRow(message, expanded, outputPad, invalidate, theme),
 	);
 
 	/** The settled report folds too, with the tail and any investigation behind it. */
-	pi.registerMessageRenderer("watch_report", (message, { expanded, invalidate }, theme) =>
-		foldRow(message, expanded, invalidate, theme),
+	pi.registerMessageRenderer("watch_report", (message, { expanded, outputPad, invalidate }, theme) =>
+		foldRow(message, expanded, outputPad, invalidate, theme),
 	);
 
 	pi.registerTool({

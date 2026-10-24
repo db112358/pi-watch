@@ -79,8 +79,11 @@ settled report supersedes them.
 
 Each check-in folds to a single row in the shape of zen's thinking row — a bold `watch` lead, no
 chevron: `watch w2 draft PR CI · 10.0s · 35B`. The settled report folds the same way
-(`watch w2 draft PR CI matched after 30.4s`). Clicking either opens the tail (and any
-investigation) beneath it; `ctrl+o` opens every row at once.
+(`watch w2 draft PR CI matched after 30.4s`). Both wear the standard custom-message frame, and
+clicking either opens the tail (and any investigation) beneath it.
+
+`ctrl+o` deliberately does not unfold them: a check-in is a glance, several arrive per run, and
+the click is the door.
 
 The click needs an `invalidate` handle on `MessageRenderOptions`, which upstream pi does not
 pass. The pi fork in `~/scratchpad/pi` adds it (optional, so watch still loads on a stock build),

@@ -88,18 +88,26 @@ assert.ok(renderer, "a renderer is registered for watch_progress");
 let invalidated = 0;
 const options = { expanded: false, outputPad: 1, invalidate: () => invalidated++ };
 const row = renderer(progress[0].message, options, theme);
-assert.equal(row.render(120).length, 1, "folds to one row");
-assert.match(row.render(120)[0], /watch w\d+ .* still running/);
-assert.doesNotMatch(row.render(120)[0], /tick \d/, "the tail stays folded");
+const blankless = (component) => component.render(120).filter((line) => line.trim());
+assert.equal(blankless(row).length, 1, "folds to one row");
+assert.match(blankless(row)[0], /watch w\d+ .* still running/);
+assert.doesNotMatch(blankless(row).join(""), /tick \d/, "the tail stays folded");
 
 // A click opens it and asks pi to repaint; ctrl+o opens every row at once.
-row.handleMouse({ type: "click", button: "left" });
+row.handleMouse({ type: "click", button: "left", x: 2, y: 1, width: 120, height: 3, screenX: 0, screenY: 0 });
 assert.equal(invalidated, 1, "a click invalidates the message");
-const opened = renderer(progress[0].message, options, theme).render(120);
+const opened = blankless(renderer(progress[0].message, options, theme));
 assert.ok(opened.length > 1, "the reopened row shows the tail");
 assert.match(opened.join("\n"), /tick \d/);
-const viaCtrlO = renderer(progress[0].message, { ...options, expanded: true }, theme);
-assert.ok(viaCtrlO.render(120).length > 1, "expanded shows the tail without a click");
+// ctrl+o does not unfold a check-in: it is a glance, and the click is the door.
+const fresh = { ...progress[0].message, timestamp: progress[0].message.timestamp + 1 };
+assert.equal(
+	renderer(fresh, { ...options, expanded: true }, theme)
+		.render(120)
+		.filter((line) => line.trim()).length,
+	1,
+	"ctrl+o does not unfold a check-in",
+);
 
 await new Promise((resolve) => setTimeout(resolve, 6_000));
 
@@ -113,11 +121,11 @@ assert.ok(reportRenderer, "a renderer is registered for watch_report");
 let reportInvalidated = 0;
 const reportOptions = { expanded: false, outputPad: 1, invalidate: () => reportInvalidated++ };
 const reportRow = reportRenderer(reports[0].message, reportOptions, theme);
-assert.equal(reportRow.render(120).length, 1, "the report folds to one row");
-assert.match(reportRow.render(120)[0], /watch w\d+ .* matched after/);
-reportRow.handleMouse({ type: "click", button: "left" });
+assert.equal(blankless(reportRow).length, 1, "the report folds to one row");
+assert.match(blankless(reportRow)[0], /watch w\d+ .* matched after/);
+reportRow.handleMouse({ type: "click", button: "left", x: 2, y: 1, width: 120, height: 3, screenX: 0, screenY: 0 });
 assert.equal(reportInvalidated, 1, "clicking the report invalidates it");
-assert.ok(reportRenderer(reports[0].message, reportOptions, theme).render(120).length > 1);
+assert.ok(blankless(reportRenderer(reports[0].message, reportOptions, theme)).length > 1);
 assert.equal(
 	widgets.filter((entry) => entry.key === "watch").at(-1).content,
 	undefined,

@@ -758,16 +758,23 @@ export default function (pi: ExtensionAPI) {
 		return box;
 	};
 
+	/** A renderer that throws is silently replaced by pi's default drawing. Say so instead. */
+	const guarded = (build: () => Component, theme: Theme): Component => {
+		try {
+			return build();
+		} catch (error) {
+			return new Text(`${theme.fg("error", "watch renderer failed: ")}${errorMessage(error)}`, 0, 0);
+		}
+	};
+
 	/** An interim check-in folds to one row; clicking it opens the tail. */
-	pi.registerMessageRenderer<{ label: string; tail?: string }>(
-		"watch_progress",
-		(message, { expanded, outputPad, invalidate }, theme) =>
-			foldRow(message, expanded, outputPad, invalidate, theme),
+	pi.registerMessageRenderer<{ label: string; tail?: string }>("watch_progress", (message, options, theme) =>
+		guarded(() => foldRow(message, options.expanded, options.outputPad, options.invalidate, theme), theme),
 	);
 
 	/** The settled report folds too, with the tail and any investigation behind it. */
-	pi.registerMessageRenderer("watch_report", (message, { expanded, outputPad, invalidate }, theme) =>
-		foldRow(message, expanded, outputPad, invalidate, theme),
+	pi.registerMessageRenderer("watch_report", (message, options, theme) =>
+		guarded(() => foldRow(message, options.expanded, options.outputPad, options.invalidate, theme), theme),
 	);
 
 	pi.registerTool({

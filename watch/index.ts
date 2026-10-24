@@ -64,8 +64,6 @@ const PROGRESS_INTERVAL_MS = 500;
 const MIN_PROGRESS_SECONDS = 5;
 const KILL_GRACE_MS = 3_000;
 const WIDGET_KEY = "watch";
-/** Bumped whenever the loaded build matters; echoed in the tool result. */
-const BUILD = 9;
 /** One glyph per state, so the card reads at a glance like the andon light. */
 const STATUS_GLYPH: Record<string, string> = {
 	running: "⏳",
@@ -883,7 +881,7 @@ With \`background: true\` the call returns a handle immediately and the report, 
 					content: [
 						{
 							type: "text",
-							text: `watch ${watch.id} started in the background (build ${BUILD})\ntitle: ${watch.label}\ncommand: ${watch.command}\nsettles on: ${conditions.join(", ")}\n\nThe report arrives as a message when it settles. Do not poll it.`,
+							text: `watch ${watch.id} started in the background\ntitle: ${watch.label}\ncommand: ${watch.command}\nsettles on: ${conditions.join(", ")}\n\nThe report arrives as a message when it settles. Do not poll it.`,
 						},
 					],
 					details: detailsOf(watch, true),

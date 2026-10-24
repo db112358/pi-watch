@@ -30,7 +30,7 @@ import {
 	ModelSelectorComponent,
 	truncateTail,
 } from "@earendil-works/pi-coding-agent";
-import { Text } from "@earendil-works/pi-tui";
+import { MouseRegion, Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { type EscalationOutcome, Escalator, errorMessage, formatDuration } from "./escalation.ts";
 import {
@@ -683,29 +683,46 @@ export default function (pi: ExtensionAPI) {
 		});
 	};
 
+	/** Rows the reader has opened or closed by clicking, keyed by message timestamp. */
+	const overrides = new Map<number, boolean>();
+
 	/**
-	 * An interim check-in folds to one row: ctrl+o opens it, the same control that
-	 * expands tool rows. A click cannot, because a message renderer gets no
-	 * invalidate handle to redraw itself with.
+	 * One foldable row in the shape of zen's thinking row: a bold `watch` lead and
+	 * no chevron, with the body under it when open.
 	 */
+	const foldRow = (
+		message: { timestamp: number; content: unknown; details?: unknown },
+		expanded: boolean,
+		invalidate: (() => void) | undefined,
+		theme: Theme,
+	) => {
+		const [head, ...rest] = String(message.content).split("\n\n");
+		const details = message.details as { label?: string; tail?: string } | undefined;
+		const label = details?.label ?? head;
+		const body = details?.tail ?? rest.join("\n\n");
+		const open = overrides.get(message.timestamp) ?? expanded;
+		const main = label.replace(/^watch /, "");
+		const row = `${theme.fg("toolTitle", theme.bold("watch"))} ${theme.fg("text", main)}`;
+		const text = open && body ? `${row}\n${theme.fg("dim", body)}` : row;
+		return new MouseRegion(new Text(text, 0, 0), (event) => {
+			if (event.type !== "click" || event.button !== "left") return undefined;
+			overrides.set(message.timestamp, !open);
+			invalidate?.();
+			return { handled: true };
+		});
+	};
+
+	/** An interim check-in folds to one row; clicking it opens the tail. */
 	pi.registerMessageRenderer<{ label: string; tail?: string }>(
 		"watch_progress",
-		(message, { expanded }, theme) => {
-			const [head, ...rest] = String(message.content).split("\n\n");
-			const label = message.details?.label ?? head;
-			const tail = message.details?.tail ?? rest.join("\n\n");
-			const row = `${theme.fg("dim", "▶")} ${theme.fg("text", label)}`;
-			return new Text(expanded && tail ? `${row}\n${theme.fg("dim", tail)}` : row, 0, 0);
-		},
+		(message, { expanded, invalidate }, theme) =>
+			foldRow(message, expanded, invalidate, theme),
 	);
 
-	/** A settled watch is one row as well; ctrl+o opens the tail and the investigation. */
-	pi.registerMessageRenderer("watch_report", (message, { expanded }, theme) => {
-		const [head, ...rest] = String(message.content).split("\n\n");
-		const body = rest.join("\n\n");
-		const row = `${theme.fg("dim", "✓")} ${theme.fg("text", head)}`;
-		return new Text(expanded && body ? `${row}\n${theme.fg("dim", body)}` : row, 0, 0);
-	});
+	/** The settled report folds too, with the tail and any investigation behind it. */
+	pi.registerMessageRenderer("watch_report", (message, { expanded, invalidate }, theme) =>
+		foldRow(message, expanded, invalidate, theme),
+	);
 
 	pi.registerTool({
 		name: "watch",

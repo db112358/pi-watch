@@ -77,13 +77,14 @@ seen settled. They are skipped when the command produced nothing new, the floor 
 one of them starts a turn — treat it as "check in on this run" (30–60s), not a `tail -f`. The
 settled report supersedes them.
 
-Each check-in folds to a single row — `▶ watch w2 draft PR CI · 10.0s · 35B` — and so does the
-settled report — `✓ watch w2 draft PR CI matched after 30.4s`. `ctrl+o`, the control that opens
-tool rows, shows the tail (and any investigation) beneath them.
+Each check-in folds to a single row in the shape of zen's thinking row — a bold `watch` lead, no
+chevron: `watch w2 draft PR CI · 10.0s · 35B`. The settled report folds the same way
+(`watch w2 draft PR CI matched after 30.4s`). Clicking either opens the tail (and any
+investigation) beneath it; `ctrl+o` opens every row at once.
 
-A click cannot: a message renderer is handed `(message, { expanded, outputPad }, theme)` and
-nothing else — no invalidate handle, no TUI — so a click could flip a flag but nothing would
-repaint it. Tool renderers can, which is how zen's rows open on click.
+The click needs an `invalidate` handle on `MessageRenderOptions`, which upstream pi does not
+pass. The pi fork in `~/scratchpad/pi` adds it (optional, so watch still loads on a stock build),
+exactly as it added `setThinkingRow` for zen's thinking row.
 
 This is what a `tail`-in-a-loop cannot do: that loop runs inside one tool call, so its intermediate
 output only reaches the model at the end, by which time the decision it was meant to inform has

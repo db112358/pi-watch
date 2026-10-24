@@ -17,7 +17,8 @@ const pi = {
 	// The real handler is synchronous and returns nothing; an async stub here
 	// hides promise assumptions, which is how a `.catch()` on it once crashed pi.
 	sendMessage: (message, options) => {
-		sent.push({ message, options });
+		// pi stamps every message; the renderer uses the timestamp as its row key.
+		sent.push({ message: { ...message, timestamp: Date.now() }, options });
 	},
 };
 mod.default(pi);
@@ -84,21 +85,39 @@ assert.equal(progress[0].options.triggerTurn, true);
 const renderer = renderers.get("watch_progress");
 assert.ok(renderer, "a renderer is registered for watch_progress");
 
-const folded = renderer(progress[0].message, { expanded: false, outputPad: 1 }, theme).render(120);
-assert.equal(folded.length, 1, `folds to one row, got ${folded.length}`);
-assert.match(folded[0], /▶ watch w\d+ .* still running/);
-assert.doesNotMatch(folded[0], /tick \d/, "the tail stays folded");
+let invalidated = 0;
+const options = { expanded: false, outputPad: 1, invalidate: () => invalidated++ };
+const row = renderer(progress[0].message, options, theme);
+assert.equal(row.render(120).length, 1, "folds to one row");
+assert.match(row.render(120)[0], /watch w\d+ .* still running/);
+assert.doesNotMatch(row.render(120)[0], /tick \d/, "the tail stays folded");
 
-// ctrl+o is the expand control: the same one that opens a tool row.
-const opened = renderer(progress[0].message, { expanded: true, outputPad: 1 }, theme).render(120);
-assert.ok(opened.length > 1, "expanded shows the tail");
+// A click opens it and asks pi to repaint; ctrl+o opens every row at once.
+row.handleMouse({ type: "click", button: "left" });
+assert.equal(invalidated, 1, "a click invalidates the message");
+const opened = renderer(progress[0].message, options, theme).render(120);
+assert.ok(opened.length > 1, "the reopened row shows the tail");
 assert.match(opened.join("\n"), /tick \d/);
+const viaCtrlO = renderer(progress[0].message, { ...options, expanded: true }, theme);
+assert.ok(viaCtrlO.render(120).length > 1, "expanded shows the tail without a click");
 
 await new Promise((resolve) => setTimeout(resolve, 6_000));
 
 const reports = sent.filter((entry) => entry.message.customType === "watch_report");
 assert.equal(reports.length, 1, "exactly one settled report");
 assert.match(reports[0].message.content, /tick demo for the progress test matched after/);
+
+// The report folds the same way, and opens on a click.
+const reportRenderer = renderers.get("watch_report");
+assert.ok(reportRenderer, "a renderer is registered for watch_report");
+let reportInvalidated = 0;
+const reportOptions = { expanded: false, outputPad: 1, invalidate: () => reportInvalidated++ };
+const reportRow = reportRenderer(reports[0].message, reportOptions, theme);
+assert.equal(reportRow.render(120).length, 1, "the report folds to one row");
+assert.match(reportRow.render(120)[0], /watch w\d+ .* matched after/);
+reportRow.handleMouse({ type: "click", button: "left" });
+assert.equal(reportInvalidated, 1, "clicking the report invalidates it");
+assert.ok(reportRenderer(reports[0].message, reportOptions, theme).render(120).length > 1);
 assert.equal(
 	widgets.filter((entry) => entry.key === "watch").at(-1).content,
 	undefined,

@@ -698,8 +698,13 @@ export default function (pi: ExtensionAPI) {
 		});
 	};
 
-	/** Rows the reader has opened or closed by clicking, keyed by message timestamp. */
-	const overrides = new Map<number, boolean>();
+	/**
+	 * Rows the reader opened or closed by clicking. Keyed by whatever identifies
+	 * the message: an undefined key would make one click open every row at once.
+	 */
+	const overrides = new Map<string, boolean>();
+	const rowKey = (message: { content: unknown; id?: string; timestamp?: number }) =>
+		String(message.id ?? message.timestamp ?? message.content);
 
 	/**
 	 * One foldable row: a dim lead, the run's title, and its outcome right-aligned
@@ -721,7 +726,7 @@ export default function (pi: ExtensionAPI) {
 		const title = details?.title ?? head.replace(/^watch /, "");
 		const status = details?.status ?? "";
 		const body = details?.body ?? details?.tail ?? rest.join("\n\n");
-		const open = overrides.get(message.timestamp) ?? false;
+		const open = overrides.get(rowKey(message)) ?? false;
 		// The id is for addressing a watch (`watch_status`, `watch_cancel`), not
 		// for the reader glancing at the row.
 		const lead = theme.fg("dim", theme.bold("watch"));
@@ -743,7 +748,7 @@ export default function (pi: ExtensionAPI) {
 		};
 		const clickable = new MouseRegion(row, (event) => {
 			if (event.type !== "click" || event.button !== "left") return undefined;
-			overrides.set(message.timestamp, !open);
+			overrides.set(rowKey(message), !open);
 			invalidate?.();
 			return { handled: true };
 		});

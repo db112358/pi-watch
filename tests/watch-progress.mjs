@@ -105,6 +105,19 @@ assert.equal(invalidated, 1, "a click invalidates the message");
 const opened = blankless(renderer(progress[0].message, options, theme));
 assert.ok(opened.length > 1, "the reopened row shows the tail");
 assert.match(opened.join("\n"), /tick \d/);
+// Messages without a timestamp or id must not share one click: an undefined key
+// opens every row at once, which is how one click expanded a whole run.
+const bare = { content: "watch bare row still running · 1.0s · 1B output", details: { title: "bare row", status: "still running · 1.0s · 1B output" } };
+const bareRow = renderer(bare, { expanded: false, outputPad: 1, invalidate: () => {} }, theme);
+bareRow.handleMouse({ type: "click", button: "left", x: 2, y: 1, width: 120, height: 3, screenX: 0, screenY: 0 });
+assert.equal(
+	renderer({ ...bare, content: "watch other row still running · 2.0s · 2B output" }, { expanded: false, outputPad: 1, invalidate: () => {} }, theme)
+		.render(120)
+		.filter((line) => line.trim()).length,
+	1,
+	"a click opens only its own row",
+);
+
 // ctrl+o does not unfold a check-in: it is a glance, and the click is the door.
 const fresh = { ...progress[0].message, timestamp: progress[0].message.timestamp + 1 };
 assert.equal(

@@ -281,7 +281,7 @@ class Watch {
 	private onData(chunk: Buffer): void {
 		const text = chunk.toString();
 		this.outputBytes += Buffer.byteLength(text);
-		this.sink.write(text);
+		this.writeSink(text);
 
 		this.buffer += text;
 		if (this.buffer.length > MAX_BUFFER_BYTES) {
@@ -319,8 +319,13 @@ class Watch {
 	}
 
 	private append(text: string): void {
-		this.sink.write(text);
+		this.writeSink(text);
 		this.buffer = (this.buffer + text).slice(-MAX_BUFFER_BYTES);
+	}
+
+	/** A settled watch can still receive buffered output after the file is closed. */
+	private writeSink(text: string): void {
+		if (!this.sink.writableEnded && !this.sink.destroyed) this.sink.write(text);
 	}
 
 	private finish(status: WatchStatus, error?: string): void {

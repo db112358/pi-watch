@@ -24,6 +24,7 @@ import {
 	type ExtensionAPI,
 	type ExtensionCommandContext,
 	type ExtensionToolContext,
+	type Theme,
 	formatSize,
 	getAgentDir,
 	getShellConfig,
@@ -629,6 +630,37 @@ export default function (pi: ExtensionAPI) {
 			);
 		} catch {
 			// The UI is gone; the log file is still on disk.
+		}
+	};
+
+	/** Hand a matched result to a pi session that investigates and reports back. */
+	const escalate = async (
+		watch: Watch,
+		result: WatchResult,
+		request: EscalationRequest,
+		ctx: ExtensionToolContext,
+		signal: AbortSignal | undefined,
+		onText: ((text: string) => void) | undefined,
+	): Promise<string> => {
+		mkdirSync(ESCALATION_SESSION_DIR, { recursive: true });
+		refreshStatus(ctx);
+		try {
+			const outcome = await escalator.start(
+				{
+					key: watch.id,
+					sessionId: `${watch.id}-investigation`,
+					cwd: watch.cwd,
+					prompt: escalationPrompt(watch, result, request.task),
+					tools: request.tools?.length ? request.tools : DEFAULT_INVESTIGATION_TOOLS,
+					model: resolveInvestigationModel(ctx, request.model),
+				},
+				onText,
+				signal,
+			);
+			if (outcome.status === "aborted") return outcome.text;
+			return `${outcome.text}\n\n[investigation: ${formatUsage(outcome.usage)} · session ${outcome.sessionId} in ${outcome.sessionDir}]`;
+		} finally {
+			refreshStatus(ctx);
 		}
 	};
 

@@ -12,6 +12,8 @@
     "strict": true,
     "skipLibCheck": true,
     "noEmit": true,
+    // Extension imports name their .ts files so pi's loader resolves them directly
+    "allowImportingTsExtensions": true,
     // @types/node for node:* builtins
     "typeRoots": ["${configDir}/node_modules/@types"],
     "types": ["node"],

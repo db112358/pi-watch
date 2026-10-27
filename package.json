@@ -21,6 +21,6 @@
     "typebox": "*"
   },
   "scripts": {
-    "test": "node tests/watch-progress.mjs"
+    "test": "node tests/watch-sink-error.mjs && node tests/watch-progress.mjs"
   }
 }

@@ -189,6 +189,8 @@ class Watch {
 	private scanTail = "";
 	private child: ChildProcess | undefined;
 	private sink: WriteStream;
+	/** Set when the log file failed; the watch itself carries on from the buffer. */
+	private sinkError: string | undefined;
 	private timeoutHandle: NodeJS.Timeout | undefined;
 	private killHandle: NodeJS.Timeout | undefined;
 	private settled = false;
@@ -203,6 +205,10 @@ class Watch {
 		this.cwd = options.cwd;
 		this.fullOutputPath = join(mkdtempSync(join(tmpdir(), "pi-watch-")), "output.log");
 		this.sink = createWriteStream(this.fullOutputPath);
+		// An unhandled 'error' on a stream is an uncaughtException, which exits pi.
+		this.sink.on("error", (error) => {
+			this.sinkError = errorMessage(error);
+		});
 		this.done = new Promise<WatchResult>((resolve) => {
 			this.resolveDone = resolve;
 		});
@@ -324,9 +330,9 @@ class Watch {
 		this.buffer = (this.buffer + text).slice(-MAX_BUFFER_BYTES);
 	}
 
-	/** A settled watch can still receive buffered output after the file is closed. */
+	/** Buffered output can arrive after the log closes or dies; the buffer still holds it. */
 	private writeSink(text: string): void {
-		if (!this.sink.writableEnded && !this.sink.destroyed) this.sink.write(text);
+		if (!this.sinkError && !this.sink.writableEnded && !this.sink.destroyed) this.sink.write(text);
 	}
 
 	private finish(status: WatchStatus, error?: string): void {
@@ -336,7 +342,15 @@ class Watch {
 		if (this.timeoutHandle) clearTimeout(this.timeoutHandle);
 		// Settling early leaves the command running, so take the tree down.
 		if (status !== "exited" && status !== "error") this.terminate();
-		this.sink.end(() => this.resolveDone(this.result(error)));
+		// A failed flush emits 'error' instead of 'finish'; a sink that already died emits neither.
+		const settle = () => this.resolveDone(this.result(error ?? this.sinkError));
+		if (this.sink.destroyed) {
+			settle();
+			return;
+		}
+		this.sink.once("finish", settle);
+		this.sink.once("error", settle);
+		this.sink.end();
 	}
 
 	private terminate(): void {
